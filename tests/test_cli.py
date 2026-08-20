@@ -21,7 +21,7 @@ class Job:
             ),
             "refinement_volume": np.array(
                 [("volume.mrc", 1.5)],
-                dtype=[("blob/path", "U128"), ("blob/psize_A", "f4")],
+                dtype=[("map/path", "U128"), ("map/psize_A", "f4")],
             ),
         }
 

@@ -64,7 +64,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     mrc.write(tmp_path / "volume.mrc", volume_data, 1.5)
     volume = np.array(
         [("volume.mrc", 1.5)],
-        dtype=[("blob/path", "U128"), ("blob/psize_A", "f4")],
+        dtype=[("map/path", "U128"), ("map/psize_A", "f4")],
     )
     job = FakeExternalJob(
         tmp_path,
@@ -104,6 +104,8 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert ("select_2d_particles", "J10", "particles_selected") in job.connections
     assert ("refinement_particles", "J20", "particles") in job.connections
     assert ("refinement_volume", "J20", "volume") in job.connections
+    volume_input = next(spec for spec in job.inputs if spec["name"] == "refinement_volume")
+    assert volume_input["slots"] == ["map"]
     projection_header, projections = mrc.read(tmp_path / "class_projections.mrcs")
     assert np.isclose(projection_header.xlen / projection_header.nx, 1.5)
     assert projections.shape == (1, 3, 3)

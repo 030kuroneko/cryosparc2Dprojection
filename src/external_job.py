@@ -51,7 +51,7 @@ def run_external_orientation_job(
         job,
         name="refinement_volume",
         type="volume",
-        slots=["blob"],
+        slots=["map"],
         source=volume_source,
         title="NU or Local Refinement volume",
     )
@@ -81,9 +81,9 @@ def run_external_orientation_job(
         output_path.write_text(json.dumps(artifact, indent=2) + "\n")
 
         volume_input = job.load_input("refinement_volume")
-        volume_path = _resolve_project_path(project, volume_input["blob/path"][0])
+        volume_path = _resolve_project_path(project, volume_input["map/path"][0])
         _, volume_data = mrc.read(volume_path)
-        pixel_size = float(volume_input["blob/psize_A"][0])
+        pixel_size = float(volume_input["map/psize_A"][0])
         projections = np.asarray(
             [
                 project_volume(volume_data, orientations[class_id].view_direction)
