@@ -2,6 +2,32 @@ import numpy as np
 from scipy.ndimage import affine_transform
 
 
+def project_volume_at_rotation(volume, rotation_matrix):
+    """Project a volume after applying a complete Cartesian camera rotation."""
+    volume = np.asarray(volume)
+    rotation_matrix = np.asarray(rotation_matrix, dtype=float)
+    reverse_axes = np.array(
+        [
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ]
+    )
+    output_to_input = reverse_axes @ rotation_matrix.T @ reverse_axes
+    center = (np.asarray(volume.shape, dtype=float) - 1.0) / 2.0
+    rotated = affine_transform(
+        volume,
+        matrix=output_to_input,
+        offset=center - output_to_input @ center,
+        output_shape=volume.shape,
+        order=1,
+        mode="constant",
+        cval=0.0,
+        prefilter=False,
+    )
+    return rotated.sum(axis=0)
+
+
 def project_volume(volume, view_direction):
     """Project a 3D MRC-style array from the requested viewing direction."""
     volume = np.asarray(volume)

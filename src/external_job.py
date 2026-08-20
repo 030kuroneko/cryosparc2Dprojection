@@ -22,6 +22,7 @@ def run_external_orientation_job(
     project,
     workspace_uid,
     select_2d_source,
+    select_templates_source,
     refinement_source,
     volume_source,
     symmetry="C1",
@@ -30,6 +31,14 @@ def run_external_orientation_job(
     job = project.create_external_job(
         workspace_uid,
         title=f"2D Class Orientation (CryoSPARC {TARGET_CRYOSPARC_VERSION})",
+    )
+    _add_and_connect_input(
+        job,
+        name="select_2d_templates",
+        type="template",
+        slots=["blob"],
+        source=select_templates_source,
+        title="Selected 2D class averages",
     )
     _add_and_connect_input(
         job,

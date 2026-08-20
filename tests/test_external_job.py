@@ -81,6 +81,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         project,
         workspace_uid="W1",
         select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
         refinement_source=SourceOutput("J20", "particles"),
         volume_source=SourceOutput("J20", "volume"),
         symmetry="I",
@@ -102,6 +103,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     }
     assert project.created == ("W1", "2D Class Orientation (CryoSPARC 5.0.6)")
     assert ("select_2d_particles", "J10", "particles_selected") in job.connections
+    assert ("select_2d_templates", "J10", "templates_selected") in job.connections
     assert ("refinement_particles", "J20", "particles") in job.connections
     assert ("refinement_volume", "J20", "volume") in job.connections
     volume_input = next(spec for spec in job.inputs if spec["name"] == "refinement_volume")

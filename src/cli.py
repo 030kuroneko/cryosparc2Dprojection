@@ -17,6 +17,11 @@ def build_parser():
     parser.add_argument(
         "--select-output", default="particles_selected", help="Select 2D particle output"
     )
+    parser.add_argument(
+        "--templates-output",
+        default="templates_selected",
+        help="Select 2D class-average template output",
+    )
     parser.add_argument("--refinement-job", required=True, help="NU or Local job UID")
     parser.add_argument(
         "--refinement-particles-output",
@@ -51,6 +56,7 @@ def main(argv=None, *, client_factory=None):
         project,
         workspace_uid=args.workspace,
         select_2d_source=SourceOutput(args.select_job, args.select_output),
+        select_templates_source=SourceOutput(args.select_job, args.templates_output),
         refinement_source=SourceOutput(
             args.refinement_job, args.refinement_particles_output
         ),
