@@ -27,6 +27,10 @@ class FakeExternalJob:
         self.inputs.append(spec)
 
     def add_output(self, **spec):
+        if not spec.get("slots"):
+            raise ValueError(
+                "Must must provide slots=[...] argument with at least one slot"
+            )
         self.outputs.append(spec)
         return spec["name"]
 
@@ -219,6 +223,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert rendering_thumbnail is None
     rendering_spec = next(spec for spec in job.outputs if spec["name"] == "rendering_map")
     assert rendering_spec["type"] == "volume"
+    assert rendering_spec["slots"] == ["map"]
     assert rendering_spec["passthrough"] == "refinement_volume"
     _, interactive_volume = mrc.read(tmp_path / "class_001_volume.mrc")
     assert np.allclose(interactive_volume, np.rot90(volume_data, axes=(1, 2)))

@@ -84,6 +84,7 @@ def run_external_orientation_job(
     job.add_output(
         type="volume",
         name="rendering_map",
+        slots=["map"],
         passthrough="refinement_volume",
         title="Rendering map",
     )
