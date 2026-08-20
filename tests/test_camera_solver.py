@@ -163,3 +163,23 @@ def test_class_camera_solver_combines_3d_poses_with_2d_in_plane_poses():
     expected = Rotation.from_euler("z", -90, degrees=True).as_matrix()
     assert np.allclose(result.rotation_matrix, expected, atol=1e-6)
     assert np.allclose(result.matched_projection, class_average, atol=1e-6)
+
+
+def test_class_camera_solver_accepts_batched_2d_pose_angles():
+    volume = np.zeros((9, 9, 9), dtype=np.float32)
+    volume[1, 2, 3] = 1.0
+    volume[5, 1, 6] = 2.0
+    volume[6, 6, 2] = 4.0
+    class_average = np.rot90(volume.sum(axis=0))
+
+    result = solve_class_camera_from_particle_poses(
+        class_average,
+        volume,
+        refinement_poses=np.zeros((2, 3)),
+        alignment_2d_poses=np.array([np.pi / 2, np.pi / 2]),
+        symmetry="C1",
+        local_angular_range_degrees=0,
+    )
+
+    expected = Rotation.from_euler("z", -90, degrees=True).as_matrix()
+    assert np.allclose(result.rotation_matrix, expected, atol=1e-6)

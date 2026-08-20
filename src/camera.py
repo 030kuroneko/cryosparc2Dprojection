@@ -45,7 +45,7 @@ def solve_class_camera_from_particle_poses(
     candidates = []
     for sign in (-1.0, 1.0):
         in_plane = Rotation.from_euler(
-            "z", sign * alignment_2d_poses, degrees=False
+            "z", (sign * alignment_2d_poses).reshape(-1, 1), degrees=False
         ).as_matrix()
         particle_cameras = in_plane @ refinement_rotations
         particle_cameras = fold_camera_rotations(particle_cameras, symmetry)
