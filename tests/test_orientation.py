@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.orientation import mean_view_vector
+from cryosparc_2d_projection.orientation import mean_view_vector
 
 
 def test_mean_view_vector_returns_normalized_direction():

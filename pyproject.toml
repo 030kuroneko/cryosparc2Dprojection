@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryosparc-2d-projection"
+version = "0.1.0"
+description = "Map CryoSPARC 2D classes to 3D viewing directions."
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "cryosparc-tools~=5.0.0",
+    "matplotlib>=3.8,<4",
+    "numpy>=1.26,<3",
+    "scipy>=1.13,<2",
+]
+
+[project.scripts]
+cryosparc-2d-projection = "cryosparc_2d_projection.cli:main"
+
+[tool.setuptools]
+packages = ["cryosparc_2d_projection"]
+package-dir = { cryosparc_2d_projection = "src" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
