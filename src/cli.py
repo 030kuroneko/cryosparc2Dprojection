@@ -6,6 +6,18 @@ from cryosparc_2d_projection.external_job import (
 )
 
 
+def parse_class_numbers(value):
+    try:
+        numbers = tuple(int(part.strip()) for part in value.split(","))
+    except ValueError as error:
+        raise ValueError("Classes must be comma-separated positive integers") from error
+    if not numbers or any(number < 1 for number in numbers):
+        raise ValueError("Class numbers start at 1")
+    if len(set(numbers)) != len(numbers):
+        raise ValueError("Class numbers must not be repeated")
+    return numbers
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Create a CryoSPARC 5.0.6 External Job for 2D class orientations."
@@ -35,6 +47,11 @@ def build_parser():
         "--symmetry",
         default="C1",
         help="Refinement symmetry: C<n>, D<n>, T, O, I, I1, or I2",
+    )
+    parser.add_argument(
+        "--classes",
+        type=parse_class_numbers,
+        help="One-based class numbers to create interactive volumes for, e.g. 3,8,12",
     )
     return parser
 

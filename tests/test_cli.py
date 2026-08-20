@@ -3,7 +3,9 @@ from contextlib import nullcontext
 import numpy as np
 from cryosparc import mrc
 
-from cryosparc_2d_projection.cli import main
+import pytest
+
+from cryosparc_2d_projection.cli import main, parse_class_numbers
 
 
 class Job:
@@ -97,3 +99,13 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
     assert exit_code == 0
     assert client.requested_project == "P1"
     assert (tmp_path / "class_orientations.json").exists()
+
+
+def test_cli_accepts_one_based_class_numbers():
+    assert parse_class_numbers("3,8,12") == (3, 8, 12)
+
+
+@pytest.mark.parametrize("value", ["0", "3,3", "class3"])
+def test_cli_rejects_invalid_class_numbers(value):
+    with pytest.raises(ValueError):
+        parse_class_numbers(value)
