@@ -79,5 +79,6 @@ def main(argv=None, *, client_factory=None):
         ),
         volume_source=SourceOutput(args.refinement_job, args.volume_output),
         symmetry=args.symmetry,
+        interactive_class_numbers=args.classes or (),
     )
     return 0

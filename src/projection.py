@@ -4,6 +4,11 @@ from scipy.ndimage import affine_transform
 
 def project_volume_at_rotation(volume, rotation_matrix):
     """Project a volume after applying a complete Cartesian camera rotation."""
+    return rotate_volume_at_rotation(volume, rotation_matrix).sum(axis=0)
+
+
+def rotate_volume_at_rotation(volume, rotation_matrix):
+    """Rotate a volume into a complete Cartesian camera orientation."""
     volume = np.asarray(volume)
     rotation_matrix = np.asarray(rotation_matrix, dtype=float)
     reverse_axes = np.array(
@@ -15,7 +20,7 @@ def project_volume_at_rotation(volume, rotation_matrix):
     )
     output_to_input = reverse_axes @ rotation_matrix.T @ reverse_axes
     center = (np.asarray(volume.shape, dtype=float) - 1.0) / 2.0
-    rotated = affine_transform(
+    return affine_transform(
         volume,
         matrix=output_to_input,
         offset=center - output_to_input @ center,
@@ -25,7 +30,6 @@ def project_volume_at_rotation(volume, rotation_matrix):
         cval=0.0,
         prefilter=False,
     )
-    return rotated.sum(axis=0)
 
 
 def project_volume(volume, view_direction):

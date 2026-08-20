@@ -12,15 +12,41 @@ from cryosparc_2d_projection.external_job import (
 
 class FakeExternalJob:
     def __init__(self, directory, datasets):
+        self.uid = "J99"
         self.directory = directory
         self.datasets = datasets
         self.inputs = []
         self.connections = []
         self.logs = []
         self.plots = []
+        self.saved_outputs = {}
+        self.outputs = []
 
     def add_input(self, **spec):
         self.inputs.append(spec)
+
+    def add_output(self, **spec):
+        self.outputs.append(spec)
+        return spec["name"]
+
+    def alloc_output(self, name, count):
+        if not isinstance(count, int):
+            return count.copy()
+        if name.startswith("class_"):
+            return {
+                "map/path": np.empty(count, dtype=object),
+                "map/shape": np.zeros((count, 3), dtype=np.int32),
+                "map/psize_A": np.zeros(count, dtype=np.float32),
+            }
+        return {
+            "blob/path": np.empty(count, dtype=object),
+            "blob/idx": np.zeros(count, dtype=np.int32),
+            "blob/shape": np.zeros((count, 2), dtype=np.int32),
+            "blob/psize_A": np.zeros(count, dtype=np.float32),
+        }
+
+    def save_output(self, name, dataset, image=None):
+        self.saved_outputs[name] = (dataset, image)
 
     def connect(self, target_input, source_job_uid, source_output):
         self.connections.append((target_input, source_job_uid, source_output))
@@ -53,15 +79,32 @@ class FakeProject:
 
 def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     select_2d = np.array(
-        [(101, 0)],
-        dtype=[("uid", "u8"), ("alignments2D/class", "i4")],
+        [(101, 0, np.pi / 2)],
+        dtype=[
+            ("uid", "u8"),
+            ("alignments2D/class", "i4"),
+            ("alignments2D/pose", "f8"),
+        ],
     )
     refinement = np.array(
         [(101, [0.0, 0.0, 0.0])],
         dtype=[("uid", "u8"), ("alignments3D/pose", "f8", (3,))],
     )
-    volume_data = np.arange(27, dtype=np.float32).reshape(3, 3, 3)
+    volume_data = np.zeros((7, 7, 7), dtype=np.float32)
+    volume_data[1, 2, 3] = 1.0
+    volume_data[4, 1, 5] = 2.0
+    volume_data[5, 5, 1] = 4.0
     mrc.write(tmp_path / "volume.mrc", volume_data, 1.5)
+    class_average = np.rot90(volume_data.sum(axis=0))[None, ...]
+    mrc.write(tmp_path / "templates.mrcs", class_average, 1.5)
+    templates = np.array(
+        [("templates.mrcs", 0, 1.5)],
+        dtype=[
+            ("blob/path", "U128"),
+            ("blob/idx", "i4"),
+            ("blob/psize_A", "f4"),
+        ],
+    )
     volume = np.array(
         [("volume.mrc", 1.5)],
         dtype=[("map/path", "U128"), ("map/psize_A", "f4")],
@@ -70,6 +113,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         tmp_path,
         {
             "select_2d_particles": select_2d,
+            "select_2d_templates": templates,
             "refinement_particles": refinement,
             "refinement_volume": volume,
         },
@@ -85,21 +129,35 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         refinement_source=SourceOutput("J20", "particles"),
         volume_source=SourceOutput("J20", "volume"),
         symmetry="I",
+        interactive_class_numbers=(1,),
     )
 
     results = json.loads((tmp_path / "class_orientations.json").read_text())
-    assert results == {
-        "cryosparc_version": "5.0.6",
-        "symmetry": "I",
-        "classes": [
-            {
-                "class_id": 0,
-                "class_number": 1,
-                "particle_count": 1,
-                "view_direction": [0.0, 0.0, 1.0],
-                "angular_spread_degrees": 0.0,
-            }
-        ],
+    assert results["cryosparc_version"] == "5.0.6"
+    assert results["symmetry"] == "I"
+    class_result = results["classes"][0]
+    assert class_result["class_id"] == 0
+    assert class_result["class_number"] == 1
+    assert class_result["particle_count"] == 1
+    assert class_result["angular_spread_degrees"] == 0.0
+    assert np.allclose(class_result["camera"]["rotation_matrix"], [
+        [0.0, 1.0, 0.0],
+        [-1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    assert np.allclose(class_result["camera"]["quaternion_xyzw"], [
+        0.0, 0.0, -(2**-0.5), 2**-0.5
+    ])
+    assert np.allclose(class_result["camera"]["projection_shift_pixels"], [0.0, 0.0])
+    assert np.isclose(class_result["camera"]["match_score"], 1.0)
+    assert class_result["camera"]["coordinate_convention"] == (
+        "right-handed Cartesian active rotation; image rows increase downward"
+    )
+    assert class_result["symmetry_axis"] == {
+        "label": "2-fold",
+        "nearest_order": 2,
+        "distance_degrees": 0.0,
+        "threshold_degrees": 5.0,
     }
     assert project.created == ("W1", "2D Class Orientation (CryoSPARC 5.0.6)")
     assert ("select_2d_particles", "J10", "particles_selected") in job.connections
@@ -110,8 +168,34 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert volume_input["slots"] == ["map"]
     projection_header, projections = mrc.read(tmp_path / "class_projections.mrcs")
     assert np.isclose(projection_header.xlen / projection_header.nx, 1.5)
-    assert projections.shape == (1, 3, 3)
-    assert np.allclose(projections[0], volume_data.sum(axis=0))
+    assert projections.shape == (1, 7, 7)
+    assert np.allclose(projections[0], class_average[0], atol=1e-6)
     assert len(job.plots) == 1
     assert job.plots[0][1] == "Class projection preview"
     assert job.plots[0][2] == ["png"]
+    preview = job.plots[0][0]
+    assert len(preview.axes) == 3
+    assert np.allclose(preview.axes[0].images[0].get_array(), class_average[0])
+    assert np.allclose(preview.axes[1].images[0].get_array(), class_average[0])
+    projection_output, thumbnail = job.saved_outputs["matched_projections"]
+    assert projection_output["blob/path"].tolist() == [
+        ">J99/class_projections.mrcs"
+    ]
+    assert projection_output["blob/idx"].tolist() == [0]
+    assert projection_output["blob/shape"].tolist() == [[7, 7]]
+    assert np.allclose(projection_output["blob/psize_A"], [1.5])
+    assert thumbnail is preview
+    rendering_output, rendering_thumbnail = job.saved_outputs["rendering_map"]
+    assert rendering_output["map/path"].tolist() == ["volume.mrc"]
+    assert rendering_thumbnail is None
+    rendering_spec = next(spec for spec in job.outputs if spec["name"] == "rendering_map")
+    assert rendering_spec["type"] == "volume"
+    assert rendering_spec["passthrough"] == "refinement_volume"
+    _, interactive_volume = mrc.read(tmp_path / "class_001_volume.mrc")
+    assert np.allclose(interactive_volume, np.rot90(volume_data, axes=(1, 2)))
+    class_volume_output, _ = job.saved_outputs["class_001_volume"]
+    assert class_volume_output["map/path"].tolist() == [
+        ">J99/class_001_volume.mrc"
+    ]
+    assert (tmp_path / "chimerax" / "class_001.cxc").exists()
+    assert (tmp_path / "chimerax" / "all_classes.cxc").exists()

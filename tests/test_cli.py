@@ -10,12 +10,25 @@ from cryosparc_2d_projection.cli import main, parse_class_numbers
 
 class Job:
     def __init__(self, directory):
+        self.uid = "J99"
         self.directory = directory
-        mrc.write(directory / "volume.mrc", np.ones((3, 3, 3), dtype=np.float32), 1.5)
+        volume = np.zeros((3, 3, 3), dtype=np.float32)
+        volume[0, 1, 1] = 1.0
+        volume[2, 0, 2] = 2.0
+        mrc.write(directory / "volume.mrc", volume, 1.5)
+        mrc.write(directory / "templates.mrcs", volume.sum(axis=0)[None], 1.5)
         self.datasets = {
             "select_2d_particles": np.array(
-                [(101, 0)],
-                dtype=[("uid", "u8"), ("alignments2D/class", "i4")],
+                [(101, 0, 0.0)],
+                dtype=[
+                    ("uid", "u8"),
+                    ("alignments2D/class", "i4"),
+                    ("alignments2D/pose", "f8"),
+                ],
+            ),
+            "select_2d_templates": np.array(
+                [("templates.mrcs", 0)],
+                dtype=[("blob/path", "U128"), ("blob/idx", "i4")],
             ),
             "refinement_particles": np.array(
                 [(101, [0.0, 0.0, 0.0])],
@@ -28,6 +41,22 @@ class Job:
         }
 
     def add_input(self, **spec):
+        pass
+
+    def add_output(self, **spec):
+        return spec["name"]
+
+    def alloc_output(self, name, alloc):
+        if not isinstance(alloc, int):
+            return alloc.copy()
+        return {
+            "blob/path": np.empty(alloc, dtype=object),
+            "blob/idx": np.zeros(alloc, dtype=np.int32),
+            "blob/shape": np.zeros((alloc, 2), dtype=np.int32),
+            "blob/psize_A": np.zeros(alloc, dtype=np.float32),
+        }
+
+    def save_output(self, name, dataset, image=None):
         pass
 
     def connect(self, target_input, source_job_uid, source_output):

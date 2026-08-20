@@ -20,6 +20,45 @@ class ClassCameraResult:
     match_score: float
 
 
+def solve_class_camera_from_particle_poses(
+    class_average,
+    volume,
+    *,
+    refinement_poses,
+    alignment_2d_poses,
+    symmetry="C1",
+    local_angular_range_degrees=15,
+    local_angular_step_degrees=5,
+):
+    """Solve a class camera from overlapping CryoSPARC 2D and 3D poses."""
+    refinement_poses = np.asarray(refinement_poses, dtype=float)
+    alignment_2d_poses = np.asarray(alignment_2d_poses, dtype=float)
+    if len(refinement_poses) != len(alignment_2d_poses) or len(refinement_poses) == 0:
+        raise ValueError("2D and 3D poses must contain the same non-zero particle count")
+
+    refinement_rotations = np.transpose(
+        Rotation.from_rotvec(refinement_poses).as_matrix(), (0, 2, 1)
+    )
+    candidates = []
+    for sign in (-1.0, 1.0):
+        in_plane = Rotation.from_euler(
+            "z", sign * alignment_2d_poses, degrees=False
+        ).as_matrix()
+        particle_cameras = in_plane @ refinement_rotations
+        seed = Rotation.from_matrix(particle_cameras).mean().as_matrix()
+        candidates.append(
+            solve_class_camera(
+                class_average,
+                volume,
+                initial_rotation=seed,
+                symmetry=symmetry,
+                local_angular_range_degrees=local_angular_range_degrees,
+                local_angular_step_degrees=local_angular_step_degrees,
+            )
+        )
+    return max(candidates, key=lambda candidate: candidate.match_score)
+
+
 def solve_class_camera(
     class_average,
     volume,

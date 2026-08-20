@@ -2,7 +2,10 @@ import numpy as np
 from scipy.ndimage import rotate, shift
 from scipy.spatial.transform import Rotation
 
-from cryosparc_2d_projection.camera import solve_class_camera
+from cryosparc_2d_projection.camera import (
+    solve_class_camera,
+    solve_class_camera_from_particle_poses,
+)
 
 
 def test_class_camera_solver_reproduces_an_identity_camera():
@@ -124,3 +127,24 @@ def test_class_camera_solver_refines_view_direction_around_the_pose_seed():
 
     assert np.allclose(result.rotation_matrix, np.eye(3), atol=1e-6)
     assert result.match_score > 0.99
+
+
+def test_class_camera_solver_combines_3d_poses_with_2d_in_plane_poses():
+    volume = np.zeros((9, 9, 9), dtype=np.float32)
+    volume[1, 2, 3] = 1.0
+    volume[5, 1, 6] = 2.0
+    volume[6, 6, 2] = 4.0
+    class_average = np.rot90(volume.sum(axis=0))
+
+    result = solve_class_camera_from_particle_poses(
+        class_average,
+        volume,
+        refinement_poses=np.array([[0.0, 0.0, 0.0]]),
+        alignment_2d_poses=np.array([np.pi / 2]),
+        symmetry="C1",
+        local_angular_range_degrees=0,
+    )
+
+    expected = Rotation.from_euler("z", -90, degrees=True).as_matrix()
+    assert np.allclose(result.rotation_matrix, expected, atol=1e-6)
+    assert np.allclose(result.matched_projection, class_average, atol=1e-6)
