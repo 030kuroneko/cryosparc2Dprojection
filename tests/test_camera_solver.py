@@ -3,9 +3,20 @@ from scipy.ndimage import rotate, shift
 from scipy.spatial.transform import Rotation
 
 from cryosparc_2d_projection.camera import (
+    fold_camera_rotations,
     solve_class_camera,
     solve_class_camera_from_particle_poses,
 )
+
+
+def test_symmetry_equivalent_complete_cameras_are_folded_before_averaging():
+    cameras = Rotation.from_euler(
+        "z", [[0], [120], [240]], degrees=True
+    ).as_matrix()
+
+    folded = fold_camera_rotations(cameras, "C3")
+
+    assert np.allclose(folded, np.eye(3), atol=1e-6)
 
 
 def test_class_camera_solver_reproduces_an_identity_camera():
@@ -127,6 +138,10 @@ def test_class_camera_solver_refines_view_direction_around_the_pose_seed():
 
     assert np.allclose(result.rotation_matrix, np.eye(3), atol=1e-6)
     assert result.match_score > 0.99
+    assert result.second_best_score < result.match_score
+    assert result.score_margin > 0
+    assert result.match_confidence == "high"
+    assert result.search_evaluation_count <= 20
 
 
 def test_class_camera_solver_combines_3d_poses_with_2d_in_plane_poses():

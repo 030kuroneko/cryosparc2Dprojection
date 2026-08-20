@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from itertools import product
+from dataclasses import dataclass, replace
 
 import numpy as np
 from scipy.ndimage import shift as shift_image
@@ -18,6 +17,10 @@ class ClassCameraResult:
     matched_projection: np.ndarray
     projection_shift_pixels: np.ndarray
     match_score: float
+    second_best_score: float | None = None
+    score_margin: float | None = None
+    match_confidence: str = "low"
+    search_evaluation_count: int = 0
 
 
 def solve_class_camera_from_particle_poses(
@@ -45,6 +48,7 @@ def solve_class_camera_from_particle_poses(
             "z", sign * alignment_2d_poses, degrees=False
         ).as_matrix()
         particle_cameras = in_plane @ refinement_rotations
+        particle_cameras = fold_camera_rotations(particle_cameras, symmetry)
         seed = Rotation.from_matrix(particle_cameras).mean().as_matrix()
         candidates.append(
             solve_class_camera(
@@ -57,6 +61,34 @@ def solve_class_camera_from_particle_poses(
             )
         )
     return max(candidates, key=lambda candidate: candidate.match_score)
+
+
+def fold_camera_rotations(camera_matrices, symmetry):
+    """Fold complete camera rotations into one symmetry-equivalent neighborhood."""
+    camera_matrices = np.asarray(camera_matrices, dtype=float)
+    if camera_matrices.ndim != 3 or camera_matrices.shape[1:] != (3, 3):
+        raise ValueError("camera rotations must have shape (N, 3, 3)")
+    if len(camera_matrices) == 0:
+        raise ValueError("at least one camera rotation is required")
+
+    group_name = symmetry.strip().upper()
+    if group_name == "C1":
+        return camera_matrices.copy()
+    if group_name in {"I1", "I2"}:
+        group_name = "I"
+    symmetry_matrices = Rotation.create_group(group_name).as_matrix()
+    folded = camera_matrices.copy()
+    reference = camera_matrices[0]
+
+    for _ in range(2):
+        for index, camera in enumerate(camera_matrices):
+            equivalents = camera @ symmetry_matrices
+            distances = Rotation.from_matrix(
+                equivalents @ reference.T
+            ).magnitude()
+            folded[index] = equivalents[np.argmin(distances)]
+        reference = Rotation.from_matrix(folded).mean().as_matrix()
+    return folded
 
 
 def solve_class_camera(
@@ -79,12 +111,12 @@ def solve_class_camera(
             local_angular_step_degrees,
         )
 
-    candidates = []
-    for delta_x, delta_y, delta_z in product(deltas, repeat=3):
-        perturbation = Rotation.from_euler(
-            "xyz", [delta_x, delta_y, delta_z], degrees=True
-        ).as_matrix()
-        rotation_matrix = perturbation @ initial_rotation
+    candidates = {}
+
+    def evaluate(rotation_matrix):
+        key = tuple(np.round(rotation_matrix, decimals=10).ravel())
+        if key in candidates:
+            return candidates[key]
         projection = project_volume_at_rotation(volume, rotation_matrix)
         shift_xy = _translation_to_match(class_average, projection)
         matched_projection = shift_image(
@@ -95,20 +127,62 @@ def solve_class_camera(
             cval=0.0,
             prefilter=False,
         )
-        candidates.append(
-            ClassCameraResult(
-                rotation_matrix=rotation_matrix,
-                quaternion_xyzw=Rotation.from_matrix(rotation_matrix).as_quat(),
-                view_direction=rotation_matrix[2].copy(),
-                in_plane_rotation_degrees=float(
-                    Rotation.from_matrix(rotation_matrix).as_euler("zyx", degrees=True)[0]
-                ),
-                matched_projection=matched_projection,
-                projection_shift_pixels=shift_xy,
-                match_score=_normalized_correlation(class_average, matched_projection),
-            )
+        result = ClassCameraResult(
+            rotation_matrix=rotation_matrix,
+            quaternion_xyzw=Rotation.from_matrix(rotation_matrix).as_quat(),
+            view_direction=rotation_matrix[2].copy(),
+            in_plane_rotation_degrees=float(
+                Rotation.from_matrix(rotation_matrix).as_euler("zyx", degrees=True)[0]
+            ),
+            matched_projection=matched_projection,
+            projection_shift_pixels=shift_xy,
+            match_score=_normalized_correlation(class_average, matched_projection),
         )
-    return max(candidates, key=lambda candidate: candidate.match_score)
+        candidates[key] = result
+        return result
+
+    evaluate(initial_rotation)
+    beam = [(np.zeros(3), evaluate(initial_rotation))]
+    for axis in (2, 0, 1):
+        expanded = []
+        for angles, _ in beam:
+            for delta in deltas:
+                candidate_angles = angles.copy()
+                candidate_angles[axis] = delta
+                perturbation = Rotation.from_euler(
+                    "xyz", candidate_angles, degrees=True
+                ).as_matrix()
+                expanded.append(
+                    (candidate_angles, evaluate(perturbation @ initial_rotation))
+                )
+        expanded.sort(key=lambda item: item[1].match_score, reverse=True)
+        beam = expanded[:2]
+
+    ranked_candidates = sorted(
+        candidates.values(), key=lambda candidate: candidate.match_score, reverse=True
+    )
+    best = ranked_candidates[0]
+    second_best_score = (
+        ranked_candidates[1].match_score if len(ranked_candidates) > 1 else None
+    )
+    score_margin = (
+        best.match_score - second_best_score
+        if second_best_score is not None
+        else None
+    )
+    match_confidence = (
+        "high"
+        if best.match_score >= 0.5
+        and (score_margin is None or score_margin >= 0.01)
+        else "low"
+    )
+    return replace(
+        best,
+        second_best_score=second_best_score,
+        score_margin=score_margin,
+        match_confidence=match_confidence,
+        search_evaluation_count=len(ranked_candidates),
+    )
 
 
 def _translation_to_match(target, source):

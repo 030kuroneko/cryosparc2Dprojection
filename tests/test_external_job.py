@@ -6,6 +6,7 @@ from cryosparc import mrc
 
 from cryosparc_2d_projection.external_job import (
     SourceOutput,
+    _load_class_averages,
     run_external_orientation_job,
 )
 
@@ -75,6 +76,28 @@ class FakeProject:
     def create_external_job(self, workspace_uid, title):
         self.created = (workspace_uid, title)
         return self.job
+
+
+def test_selected_template_blob_indices_remain_original_class_ids(tmp_path):
+    stack = np.zeros((50, 3, 3), dtype=np.float32)
+    stack[10] = 10
+    stack[12] = 12
+    mrc.write(tmp_path / "templates.mrcs", stack, 1.5)
+    templates = np.array(
+        [("templates.mrcs", 10, 1.5), ("templates.mrcs", 12, 1.5)],
+        dtype=[
+            ("blob/path", "U128"),
+            ("blob/idx", "i4"),
+            ("blob/psize_A", "f4"),
+        ],
+    )
+    project = type("ProjectDirectory", (), {"dir": tmp_path})()
+
+    loaded = _load_class_averages(project, templates)
+
+    assert sorted(loaded) == [10, 12]
+    assert np.all(loaded[10].image == 10)
+    assert np.all(loaded[12].image == 12)
 
 
 def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
@@ -150,6 +173,12 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     ])
     assert np.allclose(class_result["camera"]["projection_shift_pixels"], [0.0, 0.0])
     assert np.isclose(class_result["camera"]["match_score"], 1.0)
+    assert class_result["camera"]["second_best_score"] < 1.0
+    assert class_result["camera"]["score_margin"] > 0.0
+    assert class_result["camera"]["match_confidence"] == "high"
+    assert class_result["camera"]["matching_box_size"] == 7
+    assert class_result["camera"]["matching_pixel_size_A"] == 1.5
+    assert class_result["camera"]["search_evaluation_count"] <= 40
     assert class_result["camera"]["coordinate_convention"] == (
         "right-handed Cartesian active rotation; image rows increase downward"
     )

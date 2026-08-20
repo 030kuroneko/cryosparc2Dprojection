@@ -27,8 +27,12 @@ class Job:
                 ],
             ),
             "select_2d_templates": np.array(
-                [("templates.mrcs", 0)],
-                dtype=[("blob/path", "U128"), ("blob/idx", "i4")],
+                [("templates.mrcs", 0, 1.5)],
+                dtype=[
+                    ("blob/path", "U128"),
+                    ("blob/idx", "i4"),
+                    ("blob/psize_A", "f4"),
+                ],
             ),
             "refinement_particles": np.array(
                 [(101, [0.0, 0.0, 0.0])],
