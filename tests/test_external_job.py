@@ -221,11 +221,11 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert job.plots[0][1] == "Class camera preview 1/1"
     assert job.plots[0][2] == ["png"]
     preview = job.plots[0][0]
-    assert len(preview.axes) == 4
+    assert len(preview.axes) == 3
     assert np.allclose(preview.axes[0].images[0].get_array(), class_average[0])
     assert np.allclose(preview.axes[1].images[0].get_array(), class_average[0])
     assert (tmp_path / "renders" / "class_001_exact.png").exists()
-    assert (tmp_path / "renders" / "class_001_oblique.png").exists()
+    assert not (tmp_path / "renders" / "class_001_oblique.png").exists()
     assert (tmp_path / "renders" / "class_001_comparison.png").exists()
     projection_output, thumbnail = job.saved_outputs["matched_projections"]
     assert projection_output["blob/path"].tolist() == [

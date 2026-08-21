@@ -12,7 +12,7 @@ from cryosparc_2d_projection.projection import rotate_volume_at_rotation
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     build_surface_model,
-    write_camera_view_renders,
+    write_camera_view_render,
 )
 from cryosparc_2d_projection.viewer import (
     create_class_preview_figure,
@@ -193,7 +193,6 @@ def run_external_orientation_job(
             "surface_level_was_automatic": surface.surface_level_was_automatic,
             "warning": surface.warning,
             "background": render_options.background,
-            "oblique_tilt_degrees": float(render_options.oblique_tilt_degrees),
             "image_size": int(render_options.image_size),
             "grid_size": int(render_options.grid_size),
         }
@@ -231,7 +230,7 @@ def run_external_orientation_job(
                 "distance_degrees": axis.distance_degrees,
                 "threshold_degrees": 5.0,
             }
-            render_paths[class_entry["class_id"]] = write_camera_view_renders(
+            render_paths[class_entry["class_id"]] = write_camera_view_render(
                 job_directory / "renders",
                 surface=surface,
                 rotation_matrix=camera.rotation_matrix,
@@ -240,7 +239,6 @@ def run_external_orientation_job(
                 match_confidence=camera.match_confidence,
                 symmetry_label=axis.nearest_label,
                 symmetry_distance_degrees=axis.distance_degrees,
-                oblique_tilt_degrees=render_options.oblique_tilt_degrees,
                 image_size=render_options.image_size,
                 background=render_options.background,
             )

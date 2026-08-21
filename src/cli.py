@@ -94,18 +94,10 @@ def build_parser():
         help="Background for static 3D renders",
     )
     parser.add_argument(
-        "--oblique-tilt-degrees",
-        type=float,
-        default=20,
-        help="Horizontal and vertical tilt for the inspection render",
-    )
-    parser.add_argument(
         "--render-size",
         type=_integer_at_least(64),
         default=1024,
-        help=(
-            "Camera View Render and Oblique Inspection Render PNG size in pixels"
-        ),
+        help="Camera View Render PNG size in pixels",
     )
     parser.add_argument(
         "--render-grid-size",
@@ -144,7 +136,6 @@ def main(argv=None, *, client_factory=None):
             surface_level=args.surface_level,
             map_name=args.render_map,
             background=args.render_background,
-            oblique_tilt_degrees=args.oblique_tilt_degrees,
             image_size=args.render_size,
             grid_size=args.render_grid_size,
         ),

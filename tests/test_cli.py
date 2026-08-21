@@ -135,8 +135,6 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
             "0.5",
             "--render-background",
             "light",
-            "--oblique-tilt-degrees",
-            "15",
             "--render-size",
             "64",
             "--render-grid-size",
@@ -157,7 +155,6 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
         "surface_level_was_automatic": False,
         "warning": None,
         "background": "light",
-        "oblique_tilt_degrees": 15.0,
         "image_size": 64,
         "grid_size": 3,
     }
@@ -178,7 +175,6 @@ def test_cli_accepts_surface_rendering_overrides():
             "--surface-level", "0.12",
             "--render-map", "sharpened",
             "--render-background", "light",
-            "--oblique-tilt-degrees", "15",
             "--render-size", "768",
             "--render-grid-size", "160",
         ]
@@ -187,7 +183,6 @@ def test_cli_accepts_surface_rendering_overrides():
     assert args.surface_level == 0.12
     assert args.render_map == "sharpened"
     assert args.render_background == "light"
-    assert args.oblique_tilt_degrees == 15
     assert args.render_size == 768
     assert args.render_grid_size == 160
 
@@ -226,5 +221,19 @@ def test_cli_rejects_render_grid_larger_than_192_cubed():
                 "--select-job", "J1025",
                 "--refinement-job", "J1083",
                 "--render-grid-size", "193",
+            ]
+        )
+
+
+def test_cli_rejects_removed_oblique_inspection_option():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--url", "http://localhost:39000",
+                "--project", "P1",
+                "--workspace", "W9",
+                "--select-job", "J1025",
+                "--refinement-job", "J1083",
+                "--oblique-tilt-degrees", "20",
             ]
         )

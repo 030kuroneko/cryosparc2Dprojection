@@ -3,7 +3,7 @@ from PIL import Image
 
 from cryosparc_2d_projection.surface_render import (
     build_surface_model,
-    write_camera_view_renders,
+    write_camera_view_render,
 )
 
 
@@ -34,14 +34,14 @@ def test_surface_model_lowers_an_unusable_automatic_level_and_reports_it():
     assert "lowered" in surface.warning
 
 
-def test_camera_view_and_oblique_inspection_renders_are_distinct_square_images(
+def test_camera_view_render_is_saved_without_an_oblique_inspection_render(
     tmp_path,
 ):
     z, y, x = np.mgrid[-1:1:25j, -1:1:25j, -1:1:25j]
     volume = (1.0 - np.sqrt((x / 0.8) ** 2 + (y / 0.5) ** 2 + (z / 0.3) ** 2))
     surface = build_surface_model(volume, surface_level=0.2, max_size=25)
 
-    renders = write_camera_view_renders(
+    camera_view_path = write_camera_view_render(
         tmp_path,
         surface=surface,
         rotation_matrix=np.eye(3),
@@ -50,28 +50,20 @@ def test_camera_view_and_oblique_inspection_renders_are_distinct_square_images(
         match_confidence="high",
         symmetry_label="5-fold",
         symmetry_distance_degrees=1.2,
-        oblique_tilt_degrees=20,
         image_size=128,
         background="dark",
     )
 
-    assert renders.camera_view_path == tmp_path / "class_003_exact.png"
-    assert renders.oblique_inspection_path == tmp_path / "class_003_oblique.png"
-    exact = np.asarray(Image.open(renders.camera_view_path).convert("RGB"))
-    oblique = np.asarray(Image.open(renders.oblique_inspection_path).convert("RGB"))
+    assert camera_view_path == tmp_path / "class_003_exact.png"
+    assert not (tmp_path / "class_003_oblique.png").exists()
+    exact = np.asarray(Image.open(camera_view_path).convert("RGB"))
     assert exact.shape == (128, 128, 3)
-    assert oblique.shape == (128, 128, 3)
     assert exact[0, 0].max() < 20
     assert exact.max() > 200
     assert exact[:, 0].max() < 20
     assert exact[:, -1].max() < 20
     assert exact[0].max() < 20
     assert exact[35:115, 10:118].max() > 200
-    assert oblique[:, 0].max() < 20
-    assert oblique[:, -1].max() < 20
-    assert oblique[0].max() < 20
-    assert oblique[-1].max() < 20
-    assert not np.array_equal(exact, oblique)
 
 
 def test_camera_view_render_preserves_image_row_direction(tmp_path):
@@ -80,7 +72,7 @@ def test_camera_view_render_preserves_image_row_direction(tmp_path):
     tail = ((x / 0.2) ** 2 + ((y + 0.45) / 0.18) ** 2 + (z / 0.18) ** 2) < 1
     surface = build_surface_model((main | tail).astype(np.float32), surface_level=0.5)
 
-    renders = write_camera_view_renders(
+    camera_view_path = write_camera_view_render(
         tmp_path,
         surface=surface,
         rotation_matrix=np.eye(3),
@@ -92,7 +84,7 @@ def test_camera_view_render_preserves_image_row_direction(tmp_path):
         image_size=256,
     )
 
-    image = np.asarray(Image.open(renders.camera_view_path).convert("L"))
+    image = np.asarray(Image.open(camera_view_path).convert("L"))
     object_region = image[55:230]
     rows = np.nonzero(object_region > 40)[0]
     assert rows.mean() > object_region.shape[0] / 2

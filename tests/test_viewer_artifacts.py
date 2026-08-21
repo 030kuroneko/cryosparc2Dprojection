@@ -37,7 +37,7 @@ def test_chimerax_bundle_reproduces_each_class_camera(tmp_path):
     assert "view class_001" in master_script
 
 
-def test_class_preview_pages_contain_at_most_ten_four_column_rows(tmp_path):
+def test_class_preview_pages_contain_at_most_ten_three_column_rows(tmp_path):
     class_ids = list(range(11))
     class_averages = {
         class_id: SimpleNamespace(image=np.full((3, 3), class_id))
@@ -54,13 +54,8 @@ def test_class_preview_pages_contain_at_most_ten_four_column_rows(tmp_path):
     render_paths = {}
     for class_id in class_ids:
         exact_path = tmp_path / f"class_{class_id + 1:03d}_exact.png"
-        oblique_path = tmp_path / f"class_{class_id + 1:03d}_oblique.png"
         Image.new("RGB", (8, 8), "white").save(exact_path)
-        Image.new("RGB", (8, 8), "gray").save(oblique_path)
-        render_paths[class_id] = SimpleNamespace(
-            camera_view_path=exact_path,
-            oblique_inspection_path=oblique_path,
-        )
+        render_paths[class_id] = exact_path
 
     pages = create_class_preview_pages(
         class_averages,
@@ -72,7 +67,6 @@ def test_class_preview_pages_contain_at_most_ten_four_column_rows(tmp_path):
     )
 
     assert len(pages) == 2
-    assert len(pages[0].axes) == 40
-    assert len(pages[1].axes) == 4
+    assert len(pages[0].axes) == 30
+    assert len(pages[1].axes) == 3
     assert pages[0].axes[2].get_title() == "Camera View Render"
-    assert pages[0].axes[3].get_title() == "Oblique Inspection Render"

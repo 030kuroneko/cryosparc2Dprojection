@@ -20,16 +20,12 @@ _Avoid_: Camera view, 3D view
 An orthographic 3D isosurface rendering of the Rendering Map observed at the exact Class Camera Orientation.
 _Avoid_: Projection, voxel scatter, 3D projection
 
-**Oblique Inspection Render**:
-A 3D isosurface rendering tilted from the Class Camera Orientation to reveal depth and shape. It is a visualization aid, not the class's camera answer.
-_Avoid_: Matched view, camera orientation
-
 **Representative Symmetry View**:
 A deterministic member of the symmetry-equivalent Class Camera Orientations. It represents the class but is not a unique physical orientation.
 _Avoid_: Unique orientation, true orientation
 
 **Class Result**:
-The 2D class average, Matched Projection, Camera View Render, Oblique Inspection Render, orientation metadata, match score, and uncertainty for one selected class.
+The 2D class average, Matched Projection, Camera View Render, orientation metadata, match score, and uncertainty for one selected class.
 _Avoid_: Projection only
 
 **Match Confidence**:
@@ -57,7 +53,7 @@ The density map used only for the Camera View Render. It may be sharpened, but c
 _Avoid_: Matching map
 
 **Surface Level**:
-The raw density contour value whose isosurface defines the visible boundary of a Camera View Render or Oblique Inspection Render. An automatically selected value may be explicitly overridden without changing the Class Camera Orientation.
+The raw density contour value whose isosurface defines the visible boundary of a Camera View Render. An automatically selected value may be explicitly overridden without changing the Class Camera Orientation.
 _Avoid_: Match threshold, confidence threshold
 
 **Camera Metadata**:

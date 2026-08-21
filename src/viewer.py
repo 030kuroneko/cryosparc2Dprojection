@@ -49,7 +49,7 @@ def create_class_preview_pages(
     *,
     page_size=10,
 ):
-    """Create four-column Class Result pages with bounded row counts."""
+    """Create three-column Class Result pages with bounded row counts."""
     class_ids = sorted(orientations)
     return [
         create_class_preview_figure(
@@ -73,18 +73,18 @@ def create_class_preview_figure(
     *,
     class_ids,
 ):
-    """Create one four-column Class Result figure for the requested classes."""
+    """Create one three-column Class Result figure for the requested classes."""
     from matplotlib.figure import Figure
     from PIL import Image
 
     projection_rows = {
         class_id: row for row, class_id in enumerate(sorted(orientations))
     }
-    figure = Figure(figsize=(12, 3 * len(class_ids)), constrained_layout=True)
+    figure = Figure(figsize=(9, 3 * len(class_ids)), constrained_layout=True)
 
     for row, class_id in enumerate(class_ids):
         orientation = orientations[class_id]
-        class_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 1)
+        class_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 1)
         class_axis.imshow(class_averages[class_id].image, cmap="gray")
         class_axis.set_title(
             f"Class {class_id + 1} | n={orientation.particle_count}\n"
@@ -92,28 +92,18 @@ def create_class_preview_figure(
         )
         class_axis.axis("off")
 
-        projection_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 2)
+        projection_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 2)
         projection_axis.imshow(projections[projection_rows[class_id]], cmap="gray")
         projection_axis.set_title(
             f"Matched | score={cameras[class_id].match_score:.3f}"
         )
         projection_axis.axis("off")
 
-        camera_view_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 3)
-        with Image.open(
-            render_paths[class_id].camera_view_path
-        ) as camera_view_image:
+        camera_view_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 3)
+        with Image.open(render_paths[class_id]) as camera_view_image:
             camera_view_axis.imshow(camera_view_image.convert("RGB"))
         camera_view_axis.set_title("Camera View Render")
         camera_view_axis.axis("off")
-
-        inspection_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 4)
-        with Image.open(
-            render_paths[class_id].oblique_inspection_path
-        ) as inspection_image:
-            inspection_axis.imshow(inspection_image.convert("RGB"))
-        inspection_axis.set_title("Oblique Inspection Render")
-        inspection_axis.axis("off")
 
     return figure
 

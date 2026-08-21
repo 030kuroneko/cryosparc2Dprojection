@@ -3,7 +3,6 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import generate_binary_structure, label, zoom
-from scipy.spatial.transform import Rotation
 from skimage.measure import marching_cubes
 
 
@@ -24,7 +23,6 @@ class ClassRenderOptions:
     surface_level: float | None = None
     map_name: str = "map"
     background: str = "dark"
-    oblique_tilt_degrees: float = 20
     image_size: int = 1024
     grid_size: int = 192
 
@@ -37,12 +35,6 @@ class ClassRenderOptions:
             raise ValueError("render image size must be at least 64 pixels")
         if not 2 <= self.grid_size <= 192:
             raise ValueError("render grid size must be between 2 and 192")
-
-
-@dataclass(frozen=True)
-class CameraRenderPaths:
-    camera_view_path: Path
-    oblique_inspection_path: Path
 
 
 def build_surface_model(volume, *, surface_level, max_size=192):
@@ -131,7 +123,7 @@ def _extract_triangle_mesh(sampled, surface_level):
     return vertices, faces, normals
 
 
-def write_camera_view_renders(
+def write_camera_view_render(
     output_directory,
     *,
     surface,
@@ -141,49 +133,32 @@ def write_camera_view_renders(
     match_confidence,
     symmetry_label,
     symmetry_distance_degrees,
-    oblique_tilt_degrees=20,
     image_size=1024,
     background="dark",
 ):
-    """Save a Camera View Render and Oblique Inspection Render for one class."""
+    """Save the exact orthographic Camera View Render for one class."""
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
-    exact_path = output_directory / f"class_{class_number:03d}_exact.png"
-    oblique_path = output_directory / f"class_{class_number:03d}_oblique.png"
-    base_rotation = np.asarray(rotation_matrix, dtype=float)
-    tilt = Rotation.from_euler(
-        "xy", [oblique_tilt_degrees, oblique_tilt_degrees], degrees=True
-    ).as_matrix()
+    camera_view_path = output_directory / f"class_{class_number:03d}_exact.png"
     symmetry_text = (
         symmetry_label
         if symmetry_distance_degrees is None
         else f"{symmetry_label} {symmetry_distance_degrees:.1f}°"
     )
-    common_title = (
-        f"Class {class_number}\n"
+    title = (
+        f"Camera View Render | Class {class_number}\n"
         f"score={match_score:.3f} | {match_confidence} | {symmetry_text}\n"
         f"level={surface.surface_level:.4g}"
     )
     _write_surface_image(
-        exact_path,
+        camera_view_path,
         surface,
-        base_rotation,
-        title=f"Camera View Render | {common_title}",
+        np.asarray(rotation_matrix, dtype=float),
+        title=title,
         image_size=image_size,
         background=background,
     )
-    _write_surface_image(
-        oblique_path,
-        surface,
-        tilt @ base_rotation,
-        title=f"Oblique Inspection Render | {common_title}",
-        image_size=image_size,
-        background=background,
-    )
-    return CameraRenderPaths(
-        camera_view_path=exact_path,
-        oblique_inspection_path=oblique_path,
-    )
+    return camera_view_path
 
 
 def _write_surface_image(path, surface, rotation_matrix, *, title, image_size, background):
