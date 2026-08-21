@@ -70,3 +70,25 @@ def test_class_preview_pages_contain_at_most_ten_three_column_rows(tmp_path):
     assert len(pages[0].axes) == 30
     assert len(pages[1].axes) == 3
     assert pages[0].axes[2].get_title() == "Camera View Render"
+
+
+def test_class_result_displays_2d_images_in_cryosparc_display_orientation(tmp_path):
+    class_average = np.array([[1, 2, 3], [4, 5, 6]])
+    matched_projection = np.array([[7, 8, 9], [10, 11, 12]])
+    render_path = tmp_path / "class_001_exact.png"
+    Image.new("RGB", (8, 8), "white").save(render_path)
+
+    page = create_class_preview_pages(
+        {0: SimpleNamespace(image=class_average)},
+        np.asarray([matched_projection]),
+        {0: SimpleNamespace(match_score=0.9)},
+        {0: SimpleNamespace(particle_count=1, angular_spread_degrees=0.0)},
+        {0: render_path},
+    )[0]
+
+    displayed_class = np.asarray(page.axes[0].images[0].get_array())
+    displayed_projection = np.asarray(page.axes[1].images[0].get_array())
+    assert np.array_equal(displayed_class, [[4, 5, 6], [1, 2, 3]])
+    assert np.array_equal(displayed_projection, [[10, 11, 12], [7, 8, 9]])
+    assert not np.array_equal(displayed_class, np.fliplr(class_average))
+    assert not np.array_equal(displayed_projection, np.fliplr(matched_projection))

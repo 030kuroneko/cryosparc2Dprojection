@@ -85,7 +85,7 @@ def create_class_preview_figure(
     for row, class_id in enumerate(class_ids):
         orientation = orientations[class_id]
         class_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 1)
-        class_axis.imshow(class_averages[class_id].image, cmap="gray")
+        class_axis.imshow(np.flipud(class_averages[class_id].image), cmap="gray")
         class_axis.set_title(
             f"Class {class_id + 1} | n={orientation.particle_count}\n"
             f"spread={orientation.angular_spread_degrees:.1f}°"
@@ -93,7 +93,9 @@ def create_class_preview_figure(
         class_axis.axis("off")
 
         projection_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 2)
-        projection_axis.imshow(projections[projection_rows[class_id]], cmap="gray")
+        projection_axis.imshow(
+            np.flipud(projections[projection_rows[class_id]]), cmap="gray"
+        )
         projection_axis.set_title(
             f"Matched | score={cameras[class_id].match_score:.3f}"
         )

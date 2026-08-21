@@ -129,10 +129,6 @@ def write_camera_view_render(
     surface,
     rotation_matrix,
     class_number,
-    match_score,
-    match_confidence,
-    symmetry_label,
-    symmetry_distance_degrees,
     image_size=1024,
     background="dark",
 ):
@@ -140,28 +136,17 @@ def write_camera_view_render(
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
     camera_view_path = output_directory / f"class_{class_number:03d}_exact.png"
-    symmetry_text = (
-        symmetry_label
-        if symmetry_distance_degrees is None
-        else f"{symmetry_label} {symmetry_distance_degrees:.1f}°"
-    )
-    title = (
-        f"Camera View Render | Class {class_number}\n"
-        f"score={match_score:.3f} | {match_confidence} | {symmetry_text}\n"
-        f"level={surface.surface_level:.4g}"
-    )
     _write_surface_image(
         camera_view_path,
         surface,
         np.asarray(rotation_matrix, dtype=float),
-        title=title,
         image_size=image_size,
         background=background,
     )
     return camera_view_path
 
 
-def _write_surface_image(path, surface, rotation_matrix, *, title, image_size, background):
+def _write_surface_image(path, surface, rotation_matrix, *, image_size, background):
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -171,11 +156,11 @@ def _write_surface_image(path, surface, rotation_matrix, *, title, image_size, b
     if background not in {"dark", "light"}:
         raise ValueError("render background must be 'dark' or 'light'")
     background_color = "#080b10" if background == "dark" else "#ffffff"
-    foreground_color = "#ffffff" if background == "dark" else "#111111"
 
     vertices = surface.vertices @ np.asarray(rotation_matrix, dtype=float).T
-    # MRC image rows increase downward, while Matplotlib's Cartesian +y points up.
-    vertices[:, 1] *= -1
+    # CryoSPARC displays raw MRC row zero at the bottom. Matplotlib's Cartesian
+    # +y convention already gives the Camera View Render that vertical display
+    # orientation, so no horizontal or vertical mirror is applied here.
     triangles = vertices[surface.faces]
     edges_a = triangles[:, 1] - triangles[:, 0]
     edges_b = triangles[:, 2] - triangles[:, 0]
@@ -199,7 +184,7 @@ def _write_surface_image(path, surface, rotation_matrix, *, title, image_size, b
         facecolor=background_color,
     )
     FigureCanvasAgg(figure)
-    axis = figure.add_axes((0.04, 0.02, 0.92, 0.78), projection="3d")
+    axis = figure.add_axes((0.02, 0.02, 0.96, 0.96), projection="3d")
     axis.set_facecolor(background_color)
     mesh = Poly3DCollection(
         triangles,
@@ -216,14 +201,8 @@ def _write_surface_image(path, surface, rotation_matrix, *, title, image_size, b
         ylim=(-radius, radius),
         zlim=(-radius, radius),
     )
-    axis.set_box_aspect((1, 1, 1), zoom=1.35)
+    axis.set_box_aspect((1, 1, 1), zoom=1.45)
     axis.set_proj_type("ortho")
     axis.view_init(elev=90, azim=-90)
     axis.set_axis_off()
-    axis.set_title(
-        title,
-        color=foreground_color,
-        fontsize=max(5, min(9, image_size / 64)),
-        pad=0,
-    )
     figure.savefig(path, dpi=dpi, facecolor=background_color)

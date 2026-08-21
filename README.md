@@ -1,6 +1,6 @@
 # cryosparc2Dprojection
 
-Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to 3D viewing directions using particle poses from Non-uniform (NU) or Local Refinement.
+Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement.
 
 The job:
 
@@ -22,7 +22,7 @@ The job:
 - CryoSPARC Tools: `~=5.0.0`, following the official minor-version matching rule
 - Python: 3.10–3.12
 - Refinement source: NU Refinement or Local Refinement
-- Symmetry: `C<n>`, `D<n>`, `T`, `O`, `I`, `I1`, or `I2`
+- Symmetry: `C1` or CryoSPARC `I`
 
 This uses CryoSPARC's supported External Job API. Running the command creates a job inside the selected workspace, but does not permanently register a new built-in job type in Job Builder.
 
@@ -136,7 +136,7 @@ The created External Job contains:
   standard CryoSPARC `map` slot;
 - `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
 - `class_orientations.json`: full rotation matrix, quaternion, direction, roll,
-  shift, match score, confidence, angular spread, and nearest symmetry axis;
+  shift, match score, confidence, angular spread, and Surface Level;
 - `class_projections.mrcs`: one matched simulated projection per class;
 - `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
 - `renders/class_NNN_comparison.png`: three-column Class Result;
@@ -156,7 +156,13 @@ keep their original `blob/idx`, including gaps; they are never renumbered.
   selected class average.
 - `match_confidence` remains visible when low; it is not silently discarded.
 - Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
-- The Camera View Render uses the solved orthographic camera.
+- Version 0.1 rejects symmetry conventions other than `C1` and CryoSPARC `I`.
+  Support for `C<n>`, `D<n>`, and `T` is deferred until convention integration
+  tests are available.
+- Static Class Results use the same vertical display orientation as the
+  CryoSPARC UI. Matching arrays, registered MRCS data, scores, and Camera
+  Metadata are not flipped.
+- The text-free Camera View Render uses the solved orthographic camera.
 - The automatic Surface Level starts at mean + 1.5 sigma, lowers it when that
   contour is unusable, records the chosen value, and removes density islands
   smaller than 1% of the main component. Use `--surface-level` to reproduce a

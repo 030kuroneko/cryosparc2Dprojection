@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.ndimage import rotate, shift
 from scipy.spatial.transform import Rotation
 
@@ -9,14 +10,19 @@ from cryosparc_2d_projection.camera import (
 )
 
 
+@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
+def test_camera_folding_rejects_symmetry_outside_v0_1_support(symmetry):
+    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+        fold_camera_rotations(np.eye(3)[None], symmetry)
+
+
 def test_symmetry_equivalent_complete_cameras_are_folded_before_averaging():
-    cameras = Rotation.from_euler(
-        "z", [[0], [120], [240]], degrees=True
-    ).as_matrix()
+    icosahedral_group = Rotation.create_group("I").as_matrix()
+    cameras = np.asarray([np.eye(3), icosahedral_group[1], icosahedral_group[2]])
 
-    folded = fold_camera_rotations(cameras, "C3")
+    folded = fold_camera_rotations(cameras, "I")
 
-    assert np.allclose(folded, np.eye(3), atol=1e-6)
+    assert np.allclose(folded, np.broadcast_to(np.eye(3), folded.shape), atol=1e-6)
 
 
 def test_class_camera_solver_reproduces_an_identity_camera():
@@ -37,6 +43,19 @@ def test_class_camera_solver_reproduces_an_identity_camera():
     assert np.allclose(result.matched_projection, class_average, atol=1e-6)
     assert np.allclose(result.projection_shift_pixels, [0.0, 0.0], atol=1e-6)
     assert np.isclose(result.match_score, 1.0)
+
+
+@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
+def test_class_camera_solver_rejects_symmetry_outside_v0_1_support(symmetry):
+    volume = np.zeros((3, 3, 3), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+        solve_class_camera(
+            volume.sum(axis=0),
+            volume,
+            initial_rotation=np.eye(3),
+            symmetry=symmetry,
+        )
 
 
 def test_class_camera_solver_preserves_in_plane_rotation():

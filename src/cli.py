@@ -5,6 +5,7 @@ from cryosparc_2d_projection.external_job import (
     run_external_orientation_job,
 )
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
+from cryosparc_2d_projection.symmetry import SupportedSymmetry
 
 
 def parse_class_numbers(value):
@@ -17,6 +18,13 @@ def parse_class_numbers(value):
     if len(set(numbers)) != len(numbers):
         raise ValueError("Class numbers must not be repeated")
     return numbers
+
+
+def parse_supported_symmetry(value):
+    try:
+        return SupportedSymmetry.parse(value).value
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def _integer_at_least(minimum):
@@ -68,8 +76,9 @@ def build_parser():
     )
     parser.add_argument(
         "--symmetry",
+        type=parse_supported_symmetry,
         default="C1",
-        help="Refinement symmetry: C<n>, D<n>, T, O, I, I1, or I2",
+        help="Refinement symmetry (v0.1: C1 or I)",
     )
     parser.add_argument(
         "--classes",

@@ -46,10 +46,6 @@ def test_camera_view_render_is_saved_without_an_oblique_inspection_render(
         surface=surface,
         rotation_matrix=np.eye(3),
         class_number=3,
-        match_score=0.982,
-        match_confidence="high",
-        symmetry_label="5-fold",
-        symmetry_distance_degrees=1.2,
         image_size=128,
         background="dark",
     )
@@ -66,10 +62,20 @@ def test_camera_view_render_is_saved_without_an_oblique_inspection_render(
     assert exact[35:115, 10:118].max() > 200
 
 
-def test_camera_view_render_preserves_image_row_direction(tmp_path):
+def test_camera_view_render_uses_vertical_display_flip_without_horizontal_mirror(
+    tmp_path,
+):
     z, y, x = np.mgrid[-1:1:41j, -1:1:41j, -1:1:41j]
-    main = ((x / 0.45) ** 2 + ((y - 0.35) / 0.3) ** 2 + (z / 0.3) ** 2) < 1
-    tail = ((x / 0.2) ** 2 + ((y + 0.45) / 0.18) ** 2 + (z / 0.18) ** 2) < 1
+    main = (
+        ((x - 0.35) / 0.3) ** 2
+        + ((y - 0.35) / 0.3) ** 2
+        + (z / 0.3) ** 2
+    ) < 1
+    tail = (
+        ((x + 0.45) / 0.18) ** 2
+        + ((y + 0.45) / 0.18) ** 2
+        + (z / 0.18) ** 2
+    ) < 1
     surface = build_surface_model((main | tail).astype(np.float32), surface_level=0.5)
 
     camera_view_path = write_camera_view_render(
@@ -77,17 +83,33 @@ def test_camera_view_render_preserves_image_row_direction(tmp_path):
         surface=surface,
         rotation_matrix=np.eye(3),
         class_number=1,
-        match_score=1.0,
-        match_confidence="high",
-        symmetry_label="5-fold",
-        symmetry_distance_degrees=0.0,
         image_size=256,
     )
 
     image = np.asarray(Image.open(camera_view_path).convert("L"))
-    object_region = image[55:230]
-    rows = np.nonzero(object_region > 40)[0]
-    assert rows.mean() > object_region.shape[0] / 2
+    rows, columns = np.nonzero(image > 40)
+    assert rows.mean() < image.shape[0] / 2
+    assert columns.mean() > image.shape[1] / 2
+
+
+def test_camera_view_render_contains_only_a_centered_surface_without_text(tmp_path):
+    z, y, x = np.mgrid[-1:1:41j, -1:1:41j, -1:1:41j]
+    volume = (x**2 + y**2 + z**2 < 0.45**2).astype(np.float32)
+    surface = build_surface_model(volume, surface_level=0.5)
+
+    camera_view_path = write_camera_view_render(
+        tmp_path,
+        surface=surface,
+        rotation_matrix=np.eye(3),
+        class_number=8,
+        image_size=256,
+    )
+
+    image = np.asarray(Image.open(camera_view_path).convert("L"))
+    bright_rows, bright_columns = np.nonzero(image > 40)
+    assert image[:16].max() < 20
+    assert 110 < bright_rows.mean() < 146
+    assert 110 < bright_columns.mean() < 146
 
 
 def test_automatic_surface_extraction_retries_at_a_lower_level(monkeypatch):

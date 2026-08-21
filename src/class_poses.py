@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from cryosparc_2d_projection.symmetry import SupportedSymmetry
+
 
 @dataclass(frozen=True)
 class ClassPoses:
@@ -46,6 +48,7 @@ def match_class_poses(select_2d, refinement):
 
 def analyze_class_orientations(select_2d, refinement, *, symmetry="C1"):
     """Calculate a representative viewing direction for every matched 2D class."""
+    symmetry = SupportedSymmetry.parse(symmetry)
     matched = match_class_poses(select_2d, refinement)
     if not matched:
         raise ValueError("No overlapping particle UIDs between Select 2D and refinement")
@@ -73,13 +76,11 @@ def analyze_class_orientations(select_2d, refinement, *, symmetry="C1"):
 
 
 def _fold_symmetry_equivalents(view_directions, symmetry):
-    group_name = symmetry.strip().upper()
-    if group_name == "C1":
+    supported_symmetry = SupportedSymmetry.parse(symmetry)
+    if supported_symmetry is SupportedSymmetry.C1:
         return view_directions
-    if group_name in {"I1", "I2"}:
-        group_name = "I"
 
-    symmetry_matrices = Rotation.create_group(group_name).as_matrix()
+    symmetry_matrices = Rotation.create_group(supported_symmetry.value).as_matrix()
     reference = view_directions[0]
     folded = view_directions.copy()
 

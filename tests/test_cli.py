@@ -237,3 +237,20 @@ def test_cli_rejects_removed_oblique_inspection_option():
                 "--oblique-tilt-degrees", "20",
             ]
         )
+
+
+@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
+def test_cli_rejects_symmetry_outside_v0_1_support(symmetry, capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--url", "http://localhost:39000",
+                "--project", "P1",
+                "--workspace", "W9",
+                "--select-job", "J1025",
+                "--refinement-job", "J1083",
+                "--symmetry", symmetry,
+            ]
+        )
+
+    assert "v0.1 only supports C1 and I" in capsys.readouterr().err

@@ -16,6 +16,10 @@ _Avoid_: Camera orientation
 A simulated 2D image generated from the refined map at a Class Camera Orientation and aligned to the corresponding 2D class average.
 _Avoid_: Camera view, 3D view
 
+**CryoSPARC Display Orientation**:
+The vertical image orientation shown by the CryoSPARC UI for a 2D class average. Static Class Result images use this orientation as their display reference without redefining the underlying Class Camera Orientation.
+_Avoid_: Raw array orientation, arbitrary display flip
+
 **Camera View Render**:
 An orthographic 3D isosurface rendering of the Rendering Map observed at the exact Class Camera Orientation.
 _Avoid_: Projection, voxel scatter, 3D projection
@@ -23,6 +27,10 @@ _Avoid_: Projection, voxel scatter, 3D projection
 **Representative Symmetry View**:
 A deterministic member of the symmetry-equivalent Class Camera Orientations. It represents the class but is not a unique physical orientation.
 _Avoid_: Unique orientation, true orientation
+
+**Supported Symmetry Convention**:
+The symmetry coordinate convention whose pose folding and Class Camera Orientation behavior have been explicitly accepted for this tool. Version 0.1 supports no symmetry (`C1`) and CryoSPARC's documented icosahedral convention (`I`).
+_Avoid_: Treating `I1`, `I2`, or another unverified convention as an alias
 
 **Class Result**:
 The 2D class average, Matched Projection, Camera View Render, orientation metadata, match score, and uncertainty for one selected class.
@@ -63,14 +71,6 @@ _Avoid_: Euler angles alone
 **Orientation Group**:
 A Class Camera Orientation together with every camera related to it by the map's declared symmetry. Members of one group are not competing orientation answers.
 _Avoid_: Individual symmetry mate
-
-**Symmetry Axis Assignment**:
-The nearest 2-fold, 3-fold, or 5-fold axis and its angular distance from a View Direction. A class is named as an axis view only when that distance is within the configured threshold.
-_Avoid_: Forced axis class
-
-**General View**:
-A View Direction that is outside the configured angular threshold for every named symmetry axis.
-_Avoid_: Other axis
 
 **Projection Shift**:
 The two-dimensional translation that aligns a Matched Projection to its class average. It is reported separately and does not change the Class Camera Orientation.

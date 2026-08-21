@@ -6,6 +6,7 @@ from scipy.signal import fftconvolve
 from scipy.spatial.transform import Rotation
 
 from cryosparc_2d_projection.projection import project_volume_at_rotation
+from cryosparc_2d_projection.symmetry import SupportedSymmetry
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ def solve_class_camera_from_particle_poses(
     local_angular_step_degrees=5,
 ):
     """Solve a class camera from overlapping CryoSPARC 2D and 3D poses."""
+    symmetry = SupportedSymmetry.parse(symmetry)
     refinement_poses = np.asarray(refinement_poses, dtype=float)
     alignment_2d_poses = np.asarray(alignment_2d_poses, dtype=float)
     if len(refinement_poses) != len(alignment_2d_poses) or len(refinement_poses) == 0:
@@ -71,12 +73,10 @@ def fold_camera_rotations(camera_matrices, symmetry):
     if len(camera_matrices) == 0:
         raise ValueError("at least one camera rotation is required")
 
-    group_name = symmetry.strip().upper()
-    if group_name == "C1":
+    supported_symmetry = SupportedSymmetry.parse(symmetry)
+    if supported_symmetry is SupportedSymmetry.C1:
         return camera_matrices.copy()
-    if group_name in {"I1", "I2"}:
-        group_name = "I"
-    symmetry_matrices = Rotation.create_group(group_name).as_matrix()
+    symmetry_matrices = Rotation.create_group(supported_symmetry.value).as_matrix()
     folded = camera_matrices.copy()
     reference = camera_matrices[0]
 
@@ -101,6 +101,7 @@ def solve_class_camera(
     local_angular_step_degrees=1,
 ):
     """Solve one complete class camera from a pose-derived initial rotation."""
+    symmetry = SupportedSymmetry.parse(symmetry)
     initial_rotation = np.asarray(initial_rotation, dtype=float)
     if local_angular_range_degrees == 0:
         deltas = np.array([0.0])

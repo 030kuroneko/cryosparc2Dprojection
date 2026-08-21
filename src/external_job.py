@@ -14,12 +14,12 @@ from cryosparc_2d_projection.surface_render import (
     build_surface_model,
     write_camera_view_render,
 )
+from cryosparc_2d_projection.symmetry import SupportedSymmetry
 from cryosparc_2d_projection.viewer import (
     create_class_preview_figure,
     create_class_preview_pages,
     write_chimerax_bundle,
 )
-from cryosparc_2d_projection.symmetry import assign_symmetry_axis
 
 
 TARGET_CRYOSPARC_VERSION = "5.0.6"
@@ -49,6 +49,7 @@ def run_external_orientation_job(
     render_options=None,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
+    symmetry = SupportedSymmetry.parse(symmetry).value
     render_options = render_options or ClassRenderOptions()
     rendering_slot = (
         "map_sharp" if render_options.map_name == "sharpened" else "map"
@@ -185,6 +186,7 @@ def run_external_orientation_job(
             surface_level=render_options.surface_level,
             max_size=render_options.grid_size,
         )
+        job.log(f"Surface Level: {surface.surface_level:.6g}")
         if surface.warning:
             job.log(surface.warning)
         artifact["rendering"] = {
@@ -199,9 +201,6 @@ def run_external_orientation_job(
         render_paths = {}
         for class_entry in artifact["classes"]:
             camera = camera_results[class_entry["class_id"]]
-            axis = assign_symmetry_axis(
-                camera.view_direction, symmetry, threshold_degrees=5
-            )
             class_entry["camera"] = {
                 "rotation_matrix": camera.rotation_matrix.tolist(),
                 "quaternion_xyzw": camera.quaternion_xyzw.tolist(),
@@ -224,21 +223,11 @@ def run_external_orientation_job(
                     "image rows increase downward"
                 ),
             }
-            class_entry["symmetry_axis"] = {
-                "label": axis.label,
-                "nearest_order": axis.nearest_order,
-                "distance_degrees": axis.distance_degrees,
-                "threshold_degrees": 5.0,
-            }
             render_paths[class_entry["class_id"]] = write_camera_view_render(
                 job_directory / "renders",
                 surface=surface,
                 rotation_matrix=camera.rotation_matrix,
                 class_number=class_entry["class_number"],
-                match_score=camera.match_score,
-                match_confidence=camera.match_confidence,
-                symmetry_label=axis.nearest_label,
-                symmetry_distance_degrees=axis.distance_degrees,
                 image_size=render_options.image_size,
                 background=render_options.background,
             )

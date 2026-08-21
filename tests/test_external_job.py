@@ -3,6 +3,7 @@ import json
 
 import numpy as np
 from cryosparc import mrc
+import pytest
 
 from cryosparc_2d_projection.external_job import (
     SourceOutput,
@@ -81,6 +82,26 @@ class FakeProject:
     def create_external_job(self, workspace_uid, title):
         self.created = (workspace_uid, title)
         return self.job
+
+
+@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
+def test_external_job_rejects_symmetry_outside_v0_1_support_before_creating_job(
+    tmp_path, symmetry
+):
+    project = FakeProject(FakeExternalJob(tmp_path, {}))
+
+    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+        run_external_orientation_job(
+            project,
+            workspace_uid="W1",
+            select_2d_source=SourceOutput("J10", "particles_selected"),
+            select_templates_source=SourceOutput("J10", "templates_selected"),
+            refinement_source=SourceOutput("J20", "particles"),
+            volume_source=SourceOutput("J20", "volume"),
+            symmetry=symmetry,
+        )
+
+    assert project.created is None
 
 
 def test_selected_template_blob_indices_remain_original_class_ids(tmp_path):
@@ -200,12 +221,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert class_result["camera"]["coordinate_convention"] == (
         "right-handed Cartesian active rotation; image rows increase downward"
     )
-    assert class_result["symmetry_axis"] == {
-        "label": "2-fold",
-        "nearest_order": 2,
-        "distance_degrees": 0.0,
-        "threshold_degrees": 5.0,
-    }
+    assert "symmetry_axis" not in class_result
     assert project.created == ("W1", "2D Class Orientation (CryoSPARC 5.0.6)")
     assert ("select_2d_particles", "J10", "particles_selected") in job.connections
     assert ("select_2d_templates", "J10", "templates_selected") in job.connections
@@ -222,8 +238,12 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert job.plots[0][2] == ["png"]
     preview = job.plots[0][0]
     assert len(preview.axes) == 3
-    assert np.allclose(preview.axes[0].images[0].get_array(), class_average[0])
-    assert np.allclose(preview.axes[1].images[0].get_array(), class_average[0])
+    assert np.allclose(
+        preview.axes[0].images[0].get_array(), np.flipud(class_average[0])
+    )
+    assert np.allclose(
+        preview.axes[1].images[0].get_array(), np.flipud(class_average[0])
+    )
     assert (tmp_path / "renders" / "class_001_exact.png").exists()
     assert not (tmp_path / "renders" / "class_001_oblique.png").exists()
     assert (tmp_path / "renders" / "class_001_comparison.png").exists()
@@ -252,6 +272,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     ]
     assert (tmp_path / "chimerax" / "class_001.cxc").exists()
     assert (tmp_path / "chimerax" / "all_classes.cxc").exists()
+    assert any(message.startswith("Surface Level:") for message in job.logs)
 
 
 def test_class_render_options_validate_the_whole_rendering_policy():

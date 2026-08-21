@@ -58,6 +58,21 @@ def test_class_orientation_uses_cryosparc_rodrigues_pose_convention():
     assert np.isclose(orientations[0].angular_spread_degrees, 45.0)
 
 
+@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
+def test_orientation_analysis_rejects_symmetry_outside_v0_1_support(symmetry):
+    select_2d = np.array(
+        [(101, 0)],
+        dtype=[("uid", "u8"), ("alignments2D/class", "i4")],
+    )
+    refinement = np.array(
+        [(101, [0.0, 0.0, 0.0])],
+        dtype=[("uid", "u8"), ("alignments3D/pose", "f8", (3,))],
+    )
+
+    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+        analyze_class_orientations(select_2d, refinement, symmetry=symmetry)
+
+
 def test_symmetry_equivalent_directions_are_folded_before_averaging():
     select_2d = np.array(
         [(101, 0), (102, 0)],
@@ -74,7 +89,7 @@ def test_symmetry_equivalent_directions_are_folded_before_averaging():
     orientations = analyze_class_orientations(
         select_2d,
         refinement,
-        symmetry="C2",
+        symmetry="I",
     )
 
     assert np.allclose(orientations[0].view_direction, [1.0, 0.0, 0.0])
