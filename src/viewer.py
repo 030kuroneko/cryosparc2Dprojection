@@ -40,6 +40,80 @@ def write_chimerax_bundle(output_directory, *, map_path, cameras):
     return written
 
 
+def create_class_preview_pages(
+    class_averages,
+    projections,
+    cameras,
+    orientations,
+    render_paths,
+    *,
+    page_size=10,
+):
+    """Create four-column Class Result pages with bounded row counts."""
+    class_ids = sorted(orientations)
+    return [
+        create_class_preview_figure(
+            class_averages,
+            projections,
+            cameras,
+            orientations,
+            render_paths,
+            class_ids=class_ids[start : start + page_size],
+        )
+        for start in range(0, len(class_ids), page_size)
+    ]
+
+
+def create_class_preview_figure(
+    class_averages,
+    projections,
+    cameras,
+    orientations,
+    render_paths,
+    *,
+    class_ids,
+):
+    """Create one four-column Class Result figure for the requested classes."""
+    from matplotlib.figure import Figure
+    from PIL import Image
+
+    projection_rows = {
+        class_id: row for row, class_id in enumerate(sorted(orientations))
+    }
+    figure = Figure(figsize=(12, 3 * len(class_ids)), constrained_layout=True)
+
+    for row, class_id in enumerate(class_ids):
+        orientation = orientations[class_id]
+        class_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 1)
+        class_axis.imshow(class_averages[class_id].image, cmap="gray")
+        class_axis.set_title(
+            f"Class {class_id + 1} | n={orientation.particle_count}\n"
+            f"spread={orientation.angular_spread_degrees:.1f}°"
+        )
+        class_axis.axis("off")
+
+        projection_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 2)
+        projection_axis.imshow(projections[projection_rows[class_id]], cmap="gray")
+        projection_axis.set_title(
+            f"Matched | score={cameras[class_id].match_score:.3f}"
+        )
+        projection_axis.axis("off")
+
+        exact_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 3)
+        with Image.open(render_paths[class_id].exact_path) as exact_image:
+            exact_axis.imshow(exact_image.convert("RGB"))
+        exact_axis.set_title("Exact 3D surface")
+        exact_axis.axis("off")
+
+        oblique_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 4)
+        with Image.open(render_paths[class_id].oblique_path) as oblique_image:
+            oblique_axis.imshow(oblique_image.convert("RGB"))
+        oblique_axis.set_title("Oblique 3D surface")
+        oblique_axis.axis("off")
+
+    return figure
+
+
 def _model_matrix_command(rotation_matrix):
     rotation_matrix = np.asarray(rotation_matrix, dtype=float)
     values = []

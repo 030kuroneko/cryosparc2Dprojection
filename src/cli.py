@@ -18,6 +18,16 @@ def parse_class_numbers(value):
     return numbers
 
 
+def _integer_at_least(minimum):
+    def parse(value):
+        number = int(value)
+        if number < minimum:
+            raise argparse.ArgumentTypeError(f"value must be at least {minimum}")
+        return number
+
+    return parse
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Create a CryoSPARC 5.0.6 External Job for 2D class orientations."
@@ -53,6 +63,41 @@ def build_parser():
         type=parse_class_numbers,
         help="One-based class numbers to create interactive volumes for, e.g. 3,8,12",
     )
+    parser.add_argument(
+        "--surface-level",
+        type=float,
+        help="Raw density contour for 3D surface renders (default: automatic)",
+    )
+    parser.add_argument(
+        "--render-map",
+        choices=("map", "sharpened"),
+        default="map",
+        help="Map used only for 3D rendering",
+    )
+    parser.add_argument(
+        "--render-background",
+        choices=("dark", "light"),
+        default="dark",
+        help="Background for static 3D renders",
+    )
+    parser.add_argument(
+        "--oblique-tilt-degrees",
+        type=float,
+        default=20,
+        help="Horizontal and vertical tilt for the inspection render",
+    )
+    parser.add_argument(
+        "--render-size",
+        type=_integer_at_least(64),
+        default=1024,
+        help="Independent exact and oblique PNG size in pixels",
+    )
+    parser.add_argument(
+        "--render-grid-size",
+        type=_integer_at_least(2),
+        default=192,
+        help="Maximum 3D grid size used to extract the rendering surface",
+    )
     return parser
 
 
@@ -80,5 +125,11 @@ def main(argv=None, *, client_factory=None):
         volume_source=SourceOutput(args.refinement_job, args.volume_output),
         symmetry=args.symmetry,
         interactive_class_numbers=args.classes or (),
+        surface_level=args.surface_level,
+        render_map=args.render_map,
+        render_background=args.render_background,
+        oblique_tilt_degrees=args.oblique_tilt_degrees,
+        render_size=args.render_size,
+        render_grid_size=args.render_grid_size,
     )
     return 0

@@ -11,6 +11,7 @@ dependencies = [
     "cryosparc-tools~=5.0.0",
     "matplotlib>=3.8,<4",
     "numpy>=1.26,<3",
+    "scikit-image>=0.24,<1",
     "scipy>=1.13,<2",
 ]
 
@@ -29,3 +30,6 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning:skimage.measure",
+]

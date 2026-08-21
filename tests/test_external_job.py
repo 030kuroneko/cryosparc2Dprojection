@@ -37,7 +37,7 @@ class FakeExternalJob:
     def alloc_output(self, name, count):
         if not isinstance(count, int):
             return count.copy()
-        if name.startswith("class_"):
+        if name == "rendering_map" or name.startswith("class_"):
             return {
                 "map/path": np.empty(count, dtype=object),
                 "map/shape": np.zeros((count, 3), dtype=np.int32),
@@ -122,6 +122,8 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     volume_data[4, 1, 5] = 2.0
     volume_data[5, 5, 1] = 4.0
     mrc.write(tmp_path / "volume.mrc", volume_data, 1.5)
+    sharpened_volume_data = volume_data * 2
+    mrc.write(tmp_path / "volume_sharp.mrc", sharpened_volume_data, 1.5)
     class_average = np.rot90(volume_data.sum(axis=0))[None, ...]
     mrc.write(tmp_path / "templates.mrcs", class_average, 1.5)
     templates = np.array(
@@ -133,8 +135,13 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         ],
     )
     volume = np.array(
-        [("volume.mrc", 1.5)],
-        dtype=[("map/path", "U128"), ("map/psize_A", "f4")],
+        [("volume.mrc", 1.5, "volume_sharp.mrc", 1.5)],
+        dtype=[
+            ("map/path", "U128"),
+            ("map/psize_A", "f4"),
+            ("map_sharp/path", "U128"),
+            ("map_sharp/psize_A", "f4"),
+        ],
     )
     job = FakeExternalJob(
         tmp_path,
@@ -157,11 +164,15 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         volume_source=SourceOutput("J20", "volume"),
         symmetry="I",
         interactive_class_numbers=(1,),
+        render_map="sharpened",
+        render_size=128,
+        render_grid_size=32,
     )
 
     results = json.loads((tmp_path / "class_orientations.json").read_text())
     assert results["cryosparc_version"] == "5.0.6"
     assert results["symmetry"] == "I"
+    assert results["rendering"]["map"] == "sharpened"
     class_result = results["classes"][0]
     assert class_result["class_id"] == 0
     assert class_result["class_number"] == 1
@@ -198,18 +209,21 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert ("refinement_particles", "J20", "particles") in job.connections
     assert ("refinement_volume", "J20", "volume") in job.connections
     volume_input = next(spec for spec in job.inputs if spec["name"] == "refinement_volume")
-    assert volume_input["slots"] == ["map"]
+    assert volume_input["slots"] == ["map", "map_sharp"]
     projection_header, projections = mrc.read(tmp_path / "class_projections.mrcs")
     assert np.isclose(projection_header.xlen / projection_header.nx, 1.5)
     assert projections.shape == (1, 7, 7)
     assert np.allclose(projections[0], class_average[0], atol=1e-6)
     assert len(job.plots) == 1
-    assert job.plots[0][1] == "Class projection preview"
+    assert job.plots[0][1] == "Class camera preview 1/1"
     assert job.plots[0][2] == ["png"]
     preview = job.plots[0][0]
-    assert len(preview.axes) == 3
+    assert len(preview.axes) == 4
     assert np.allclose(preview.axes[0].images[0].get_array(), class_average[0])
     assert np.allclose(preview.axes[1].images[0].get_array(), class_average[0])
+    assert (tmp_path / "renders" / "class_001_exact.png").exists()
+    assert (tmp_path / "renders" / "class_001_oblique.png").exists()
+    assert (tmp_path / "renders" / "class_001_comparison.png").exists()
     projection_output, thumbnail = job.saved_outputs["matched_projections"]
     assert projection_output["blob/path"].tolist() == [
         ">J99/class_projections.mrcs"
@@ -219,14 +233,16 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert np.allclose(projection_output["blob/psize_A"], [1.5])
     assert thumbnail is preview
     rendering_output, rendering_thumbnail = job.saved_outputs["rendering_map"]
-    assert rendering_output["map/path"].tolist() == ["volume.mrc"]
+    assert rendering_output["map/path"].tolist() == ["volume_sharp.mrc"]
     assert rendering_thumbnail is None
     rendering_spec = next(spec for spec in job.outputs if spec["name"] == "rendering_map")
     assert rendering_spec["type"] == "volume"
     assert rendering_spec["slots"] == ["map"]
-    assert rendering_spec["passthrough"] == "refinement_volume"
+    assert "passthrough" not in rendering_spec
     _, interactive_volume = mrc.read(tmp_path / "class_001_volume.mrc")
-    assert np.allclose(interactive_volume, np.rot90(volume_data, axes=(1, 2)))
+    assert np.allclose(
+        interactive_volume, np.rot90(sharpened_volume_data, axes=(1, 2))
+    )
     class_volume_output, _ = job.saved_outputs["class_001_volume"]
     assert class_volume_output["map/path"].tolist() == [
         ">J99/class_001_volume.mrc"

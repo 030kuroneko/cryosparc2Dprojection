@@ -12,7 +12,9 @@ The job:
 6. refines the viewing direction and in-plane rotation against the actual selected
    class average;
 7. resamples the class and map to a common physical grid (at most 128 pixels);
-8. displays class average, matched projection, and 3D camera view in the job log.
+8. extracts a solid triangular isosurface from the Rendering Map;
+9. displays class average, matched projection, exact 3D surface, and oblique 3D
+   surface in pages of ten classes.
 
 ## Compatibility
 
@@ -76,12 +78,29 @@ cryosparc-2d-projection \
   --refinement-particles-output particles \
   --volume-output volume \
   --symmetry I \
-  --classes 1,13,26
+  --classes 1,13,26 \
+  --render-map map
 ```
 
 `--classes` is optional. The job analyzes every selected class either way; this
 option only creates extra rotated CryoSPARC Volume Viewer outputs for the listed
 one-based class numbers.
+
+Use the sharpened result only for visualization with:
+
+```bash
+--render-map sharpened
+```
+
+Camera matching still uses the unsharpened `map`. Rendering options are:
+
+```text
+--surface-level FLOAT          Raw contour value; default is mean + 1.5 sigma
+--render-background dark|light
+--oblique-tilt-degrees FLOAT   Default: 20
+--render-size INTEGER          Independent PNG size; default: 1024
+--render-grid-size INTEGER     Maximum surface grid; default: 192
+```
 
 ## Run with Local Refinement
 
@@ -104,14 +123,17 @@ uv run cryosparc-2d-projection \
 The created External Job contains:
 
 - `matched_projections`: a registered CryoSPARC template stack;
-- `rendering_map`: the original refinement map for CryoSPARC Volume Viewer;
+- `rendering_map`: the selected unsharpened or sharpened Rendering Map in the
+  standard CryoSPARC `map` slot;
 - `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
 - `class_orientations.json`: full rotation matrix, quaternion, direction, roll,
   shift, match score, confidence, angular spread, and nearest symmetry axis;
 - `class_projections.mrcs`: one matched simulated projection per class;
+- `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
+- `renders/class_NNN_oblique.png`: 20-degree Oblique Inspection Render;
+- `renders/class_NNN_comparison.png`: four-column Class Result;
 - `chimerax/all_classes.cxc` and one ChimeraX script per class;
-- job-log preview: class average, matched projection, and 3D camera view for up
-  to the first 25 classes.
+- job-log preview pages: ten four-column Class Results per page.
 
 CryoSPARC stores class IDs from zero. The JSON includes both `class_id`
 (zero-based) and `class_number` (one-based, matching the UI). Selected classes
@@ -126,6 +148,13 @@ keep their original `blob/idx`, including gaps; they are never renumbered.
   selected class average.
 - `match_confidence` remains visible when low; it is not silently discarded.
 - Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
+- The exact surface render uses the solved orthographic camera. The oblique
+  render is deliberately tilted for depth perception and is not another camera
+  solution.
+- The automatic Surface Level starts at mean + 1.5 sigma, lowers it when that
+  contour is unusable, records the chosen value, and removes density islands
+  smaller than 1% of the main component. Use `--surface-level` to reproduce a
+  raw contour value chosen in CryoSPARC Volume Viewer.
 - CryoSPARC's public External Job API can register the original and rotated
   volumes, but cannot preset the integrated Volume Viewer camera. Use a requested
   `class_NNN_volume` or the generated ChimeraX scripts for the exact camera.

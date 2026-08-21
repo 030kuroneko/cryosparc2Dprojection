@@ -9,7 +9,15 @@ from cryosparc_2d_projection.class_poses import analyze_class_orientations
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
 from cryosparc_2d_projection.matching_grid import prepare_matching_grid
 from cryosparc_2d_projection.projection import rotate_volume_at_rotation
-from cryosparc_2d_projection.viewer import write_chimerax_bundle
+from cryosparc_2d_projection.surface_render import (
+    build_surface_model,
+    write_surface_render_pair,
+)
+from cryosparc_2d_projection.viewer import (
+    create_class_preview_figure,
+    create_class_preview_pages,
+    write_chimerax_bundle,
+)
 from cryosparc_2d_projection.symmetry import assign_symmetry_axis
 
 
@@ -37,8 +45,15 @@ def run_external_orientation_job(
     volume_source,
     symmetry="C1",
     interactive_class_numbers=(),
+    surface_level=None,
+    render_map="map",
+    render_background="dark",
+    oblique_tilt_degrees=20,
+    render_size=1024,
+    render_grid_size=192,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
+    rendering_slot = "map_sharp" if render_map == "sharpened" else "map"
     job = project.create_external_job(
         workspace_uid,
         title=f"2D Class Orientation (CryoSPARC {TARGET_CRYOSPARC_VERSION})",
@@ -71,7 +86,7 @@ def run_external_orientation_job(
         job,
         name="refinement_volume",
         type="volume",
-        slots=["map"],
+        slots=["map", "map_sharp"] if render_map == "sharpened" else ["map"],
         source=volume_source,
         title="NU or Local Refinement volume",
     )
@@ -85,7 +100,6 @@ def run_external_orientation_job(
         type="volume",
         name="rendering_map",
         slots=["map"],
-        passthrough="refinement_volume",
         title="Rendering map",
     )
     for class_number in interactive_class_numbers or ():
@@ -121,11 +135,21 @@ def run_external_orientation_job(
         output_path.write_text(json.dumps(artifact, indent=2) + "\n")
 
         volume_input = job.load_input("refinement_volume")
-        rendering_output = job.alloc_output("rendering_map", volume_input)
-        job.save_output("rendering_map", rendering_output)
         volume_path = _resolve_project_path(project, volume_input["map/path"][0])
         _, volume_data = mrc.read(volume_path)
         pixel_size = float(volume_input["map/psize_A"][0])
+        rendering_volume_path = _resolve_project_path(
+            project, volume_input[f"{rendering_slot}/path"][0]
+        )
+        _, rendering_volume_data = mrc.read(rendering_volume_path)
+        rendering_pixel_size = float(
+            volume_input[f"{rendering_slot}/psize_A"][0]
+        )
+        rendering_output = job.alloc_output("rendering_map", 1)
+        rendering_output["map/path"][:] = volume_input[f"{rendering_slot}/path"][0]
+        rendering_output["map/shape"][:] = rendering_volume_data.shape
+        rendering_output["map/psize_A"][:] = rendering_pixel_size
+        job.save_output("rendering_map", rendering_output)
         select_particles = job.load_input("select_2d_particles")
         refinement_particles = job.load_input("refinement_particles")
         class_averages = _load_class_averages(
@@ -153,6 +177,24 @@ def run_external_orientation_job(
                 alignment_2d_poses=alignment_2d_poses,
                 symmetry=symmetry,
             )
+        surface = build_surface_model(
+            rendering_volume_data,
+            surface_level=surface_level,
+            max_size=render_grid_size,
+        )
+        if surface.warning:
+            job.log(surface.warning)
+        artifact["rendering"] = {
+            "map": render_map,
+            "surface_level": surface.surface_level,
+            "surface_level_was_automatic": surface.surface_level_was_automatic,
+            "warning": surface.warning,
+            "background": render_background,
+            "oblique_tilt_degrees": float(oblique_tilt_degrees),
+            "image_size": int(render_size),
+            "grid_size": int(render_grid_size),
+        }
+        render_paths = {}
         for class_entry in artifact["classes"]:
             camera = camera_results[class_entry["class_id"]]
             axis = assign_symmetry_axis(
@@ -186,9 +228,22 @@ def run_external_orientation_job(
                 "distance_degrees": axis.distance_degrees,
                 "threshold_degrees": 5.0,
             }
+            render_paths[class_entry["class_id"]] = write_surface_render_pair(
+                job_directory / "renders",
+                surface=surface,
+                rotation_matrix=camera.rotation_matrix,
+                class_number=class_entry["class_number"],
+                match_score=camera.match_score,
+                match_confidence=camera.match_confidence,
+                symmetry_label=axis.label,
+                symmetry_distance_degrees=axis.distance_degrees,
+                oblique_tilt_degrees=oblique_tilt_degrees,
+                image_size=render_size,
+                background=render_background,
+            )
         write_chimerax_bundle(
             job_directory / "chimerax",
-            map_path=str(volume_path),
+            map_path=str(rendering_volume_path),
             cameras=camera_results,
         )
         output_path.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -208,29 +263,53 @@ def run_external_orientation_job(
                 raise ValueError(f"Class {class_number} is not present in selected classes")
             name = f"class_{class_number:03d}_volume"
             rotated_volume = rotate_volume_at_rotation(
-                volume_data, camera_results[class_id].rotation_matrix
+                rendering_volume_data, camera_results[class_id].rotation_matrix
             ).astype(np.float32, copy=False)
             filename = f"{name}.mrc"
-            mrc.write(job_directory / filename, rotated_volume, pixel_size)
+            mrc.write(
+                job_directory / filename, rotated_volume, rendering_pixel_size
+            )
             volume_output = job.alloc_output(name, 1)
             volume_output["map/path"][:] = f">{job.uid}/{filename}"
             volume_output["map/shape"][:] = rotated_volume.shape
-            volume_output["map/psize_A"][:] = pixel_size
+            volume_output["map/psize_A"][:] = rendering_pixel_size
             job.save_output(name, volume_output)
-        preview = _class_result_preview(
+        preview_pages = create_class_preview_pages(
             class_averages,
             projections,
-            volume_data,
             camera_results,
             orientations,
+            render_paths,
+            page_size=10,
         )
+        for class_id in sorted(orientations):
+            comparison = create_class_preview_figure(
+                class_averages,
+                projections,
+                camera_results,
+                orientations,
+                render_paths,
+                class_ids=[class_id],
+            )
+            comparison.savefig(
+                job_directory
+                / "renders"
+                / f"class_{class_id + 1:03d}_comparison.png",
+                dpi=150,
+            )
+        preview = preview_pages[0]
         projection_output = job.alloc_output("matched_projections", len(projections))
         projection_output["blob/path"][:] = f">{job.uid}/class_projections.mrcs"
         projection_output["blob/idx"][:] = np.arange(len(projections))
         projection_output["blob/shape"][:] = projections.shape[1:]
         projection_output["blob/psize_A"][:] = projection_pixel_size
         job.save_output("matched_projections", projection_output, image=preview)
-        job.log_plot(preview, "Class projection preview", formats=["png"])
+        for page_number, page in enumerate(preview_pages, start=1):
+            job.log_plot(
+                page,
+                f"Class camera preview {page_number}/{len(preview_pages)}",
+                formats=["png"],
+            )
         job.log(
             f"Analyzed {len(orientations)} 2D classes using overlapping particle UIDs."
         )
@@ -303,55 +382,3 @@ def _resolve_project_path(project, path):
     if path.is_absolute():
         return path
     return Path(_directory_of(project)) / path
-
-
-def _class_result_preview(
-    class_averages, projections, volume, cameras, orientations, *, limit=25
-):
-    from matplotlib.figure import Figure
-
-    class_ids = sorted(orientations)[:limit]
-    figure = Figure(figsize=(9, 3 * len(class_ids)), constrained_layout=True)
-
-    for row, class_id in enumerate(class_ids):
-        orientation = orientations[class_id]
-        class_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 1)
-        class_axis.imshow(class_averages[class_id].image, cmap="gray")
-        class_axis.set_title(
-            f"Class {class_id + 1} | n={orientation.particle_count}\n"
-            f"spread={orientation.angular_spread_degrees:.1f}°"
-        )
-        class_axis.axis("off")
-
-        projection_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 2)
-        projection_axis.imshow(projections[row], cmap="gray")
-        projection_axis.set_title(f"Matched | score={cameras[class_id].match_score:.3f}")
-        projection_axis.axis("off")
-
-        render_axis = figure.add_subplot(
-            len(class_ids), 3, row * 3 + 3, projection="3d"
-        )
-        _plot_camera_render(render_axis, volume, cameras[class_id].rotation_matrix)
-        render_axis.set_title("3D camera view")
-
-    return figure
-
-
-def _plot_camera_render(axis, volume, rotation_matrix, *, max_size=48):
-    step = max(1, int(np.ceil(max(volume.shape) / max_size)))
-    sampled = np.asarray(volume)[::step, ::step, ::step]
-    positive = sampled[sampled > sampled.mean()]
-    threshold = np.percentile(positive, 70) if positive.size else sampled.max()
-    points_zyx = np.argwhere(sampled >= threshold).astype(float)
-    if len(points_zyx) > 20000:
-        points_zyx = points_zyx[:: int(np.ceil(len(points_zyx) / 20000))]
-    center = (np.asarray(sampled.shape, dtype=float) - 1) / 2
-    points_xyz = (points_zyx - center)[:, ::-1]
-    rotated = points_xyz @ np.asarray(rotation_matrix).T
-    if len(rotated):
-        axis.scatter(rotated[:, 0], rotated[:, 1], rotated[:, 2], s=2, alpha=0.35)
-    radius = max(sampled.shape) / 2
-    axis.set(xlim=(-radius, radius), ylim=(-radius, radius), zlim=(-radius, radius))
-    axis.set_proj_type("ortho")
-    axis.view_init(elev=90, azim=-90)
-    axis.set_axis_off()

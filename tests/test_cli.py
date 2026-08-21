@@ -5,7 +5,7 @@ from cryosparc import mrc
 
 import pytest
 
-from cryosparc_2d_projection.cli import main, parse_class_numbers
+from cryosparc_2d_projection.cli import build_parser, main, parse_class_numbers
 
 
 class Job:
@@ -53,6 +53,12 @@ class Job:
     def alloc_output(self, name, alloc):
         if not isinstance(alloc, int):
             return alloc.copy()
+        if name == "rendering_map" or name.startswith("class_"):
+            return {
+                "map/path": np.empty(alloc, dtype=object),
+                "map/shape": np.zeros((alloc, 3), dtype=np.int32),
+                "map/psize_A": np.zeros(alloc, dtype=np.float32),
+            }
         return {
             "blob/path": np.empty(alloc, dtype=object),
             "blob/idx": np.zeros(alloc, dtype=np.int32),
@@ -125,6 +131,16 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
             "particles",
             "--volume-output",
             "volume",
+            "--surface-level",
+            "0.5",
+            "--render-background",
+            "light",
+            "--oblique-tilt-degrees",
+            "15",
+            "--render-size",
+            "64",
+            "--render-grid-size",
+            "3",
         ],
         client_factory=lambda url: client,
     )
@@ -132,13 +148,69 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
     assert exit_code == 0
     assert client.requested_project == "P1"
     assert (tmp_path / "class_orientations.json").exists()
+    results = __import__("json").loads(
+        (tmp_path / "class_orientations.json").read_text()
+    )
+    assert results["rendering"] == {
+        "map": "map",
+        "surface_level": 0.5,
+        "surface_level_was_automatic": False,
+        "warning": None,
+        "background": "light",
+        "oblique_tilt_degrees": 15.0,
+        "image_size": 64,
+        "grid_size": 3,
+    }
 
 
 def test_cli_accepts_one_based_class_numbers():
     assert parse_class_numbers("3,8,12") == (3, 8, 12)
 
 
+def test_cli_accepts_surface_rendering_overrides():
+    args = build_parser().parse_args(
+        [
+            "--url", "http://localhost:39000",
+            "--project", "P1",
+            "--workspace", "W9",
+            "--select-job", "J1025",
+            "--refinement-job", "J1083",
+            "--surface-level", "0.12",
+            "--render-map", "sharpened",
+            "--render-background", "light",
+            "--oblique-tilt-degrees", "15",
+            "--render-size", "768",
+            "--render-grid-size", "160",
+        ]
+    )
+
+    assert args.surface_level == 0.12
+    assert args.render_map == "sharpened"
+    assert args.render_background == "light"
+    assert args.oblique_tilt_degrees == 15
+    assert args.render_size == 768
+    assert args.render_grid_size == 160
+
+
 @pytest.mark.parametrize("value", ["0", "3,3", "class3"])
 def test_cli_rejects_invalid_class_numbers(value):
     with pytest.raises(ValueError):
         parse_class_numbers(value)
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [("--render-size", "63"), ("--render-grid-size", "1")],
+)
+def test_cli_rejects_rendering_sizes_below_supported_minimum(option, value):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--url", "http://localhost:39000",
+                "--project", "P1",
+                "--workspace", "W9",
+                "--select-job", "J1025",
+                "--refinement-job", "J1083",
+                option, value,
+            ]
+        )
