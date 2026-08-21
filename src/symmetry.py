@@ -10,6 +10,14 @@ class SymmetryAxisAssignment:
     nearest_order: int | None
     distance_degrees: float | None
 
+    @property
+    def nearest_label(self):
+        return (
+            f"{self.nearest_order}-fold"
+            if self.nearest_order is not None
+            else "general"
+        )
+
 
 def assign_symmetry_axis(view_direction, symmetry, *, threshold_degrees=5):
     """Assign an icosahedral View Direction to its nearest named axis."""

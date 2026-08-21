@@ -58,7 +58,8 @@ def test_class_preview_pages_contain_at_most_ten_four_column_rows(tmp_path):
         Image.new("RGB", (8, 8), "white").save(exact_path)
         Image.new("RGB", (8, 8), "gray").save(oblique_path)
         render_paths[class_id] = SimpleNamespace(
-            exact_path=exact_path, oblique_path=oblique_path
+            camera_view_path=exact_path,
+            oblique_inspection_path=oblique_path,
         )
 
     pages = create_class_preview_pages(
@@ -73,3 +74,5 @@ def test_class_preview_pages_contain_at_most_ten_four_column_rows(tmp_path):
     assert len(pages) == 2
     assert len(pages[0].axes) == 40
     assert len(pages[1].axes) == 4
+    assert pages[0].axes[2].get_title() == "Camera View Render"
+    assert pages[0].axes[3].get_title() == "Oblique Inspection Render"

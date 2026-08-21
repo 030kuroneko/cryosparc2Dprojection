@@ -10,8 +10,9 @@ from cryosparc_2d_projection.camera import solve_class_camera_from_particle_pose
 from cryosparc_2d_projection.matching_grid import prepare_matching_grid
 from cryosparc_2d_projection.projection import rotate_volume_at_rotation
 from cryosparc_2d_projection.surface_render import (
+    ClassRenderOptions,
     build_surface_model,
-    write_surface_render_pair,
+    write_camera_view_renders,
 )
 from cryosparc_2d_projection.viewer import (
     create_class_preview_figure,
@@ -45,15 +46,13 @@ def run_external_orientation_job(
     volume_source,
     symmetry="C1",
     interactive_class_numbers=(),
-    surface_level=None,
-    render_map="map",
-    render_background="dark",
-    oblique_tilt_degrees=20,
-    render_size=1024,
-    render_grid_size=192,
+    render_options=None,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
-    rendering_slot = "map_sharp" if render_map == "sharpened" else "map"
+    render_options = render_options or ClassRenderOptions()
+    rendering_slot = (
+        "map_sharp" if render_options.map_name == "sharpened" else "map"
+    )
     job = project.create_external_job(
         workspace_uid,
         title=f"2D Class Orientation (CryoSPARC {TARGET_CRYOSPARC_VERSION})",
@@ -86,7 +85,11 @@ def run_external_orientation_job(
         job,
         name="refinement_volume",
         type="volume",
-        slots=["map", "map_sharp"] if render_map == "sharpened" else ["map"],
+        slots=(
+            ["map", "map_sharp"]
+            if render_options.map_name == "sharpened"
+            else ["map"]
+        ),
         source=volume_source,
         title="NU or Local Refinement volume",
     )
@@ -179,20 +182,20 @@ def run_external_orientation_job(
             )
         surface = build_surface_model(
             rendering_volume_data,
-            surface_level=surface_level,
-            max_size=render_grid_size,
+            surface_level=render_options.surface_level,
+            max_size=render_options.grid_size,
         )
         if surface.warning:
             job.log(surface.warning)
         artifact["rendering"] = {
-            "map": render_map,
+            "map": render_options.map_name,
             "surface_level": surface.surface_level,
             "surface_level_was_automatic": surface.surface_level_was_automatic,
             "warning": surface.warning,
-            "background": render_background,
-            "oblique_tilt_degrees": float(oblique_tilt_degrees),
-            "image_size": int(render_size),
-            "grid_size": int(render_grid_size),
+            "background": render_options.background,
+            "oblique_tilt_degrees": float(render_options.oblique_tilt_degrees),
+            "image_size": int(render_options.image_size),
+            "grid_size": int(render_options.grid_size),
         }
         render_paths = {}
         for class_entry in artifact["classes"]:
@@ -228,18 +231,18 @@ def run_external_orientation_job(
                 "distance_degrees": axis.distance_degrees,
                 "threshold_degrees": 5.0,
             }
-            render_paths[class_entry["class_id"]] = write_surface_render_pair(
+            render_paths[class_entry["class_id"]] = write_camera_view_renders(
                 job_directory / "renders",
                 surface=surface,
                 rotation_matrix=camera.rotation_matrix,
                 class_number=class_entry["class_number"],
                 match_score=camera.match_score,
                 match_confidence=camera.match_confidence,
-                symmetry_label=axis.label,
+                symmetry_label=axis.nearest_label,
                 symmetry_distance_degrees=axis.distance_degrees,
-                oblique_tilt_degrees=oblique_tilt_degrees,
-                image_size=render_size,
-                background=render_background,
+                oblique_tilt_degrees=render_options.oblique_tilt_degrees,
+                image_size=render_options.image_size,
+                background=render_options.background,
             )
         write_chimerax_bundle(
             job_directory / "chimerax",

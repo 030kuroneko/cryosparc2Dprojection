@@ -9,6 +9,7 @@ from cryosparc_2d_projection.external_job import (
     _load_class_averages,
     run_external_orientation_job,
 )
+from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
 
 class FakeExternalJob:
@@ -164,9 +165,11 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         volume_source=SourceOutput("J20", "volume"),
         symmetry="I",
         interactive_class_numbers=(1,),
-        render_map="sharpened",
-        render_size=128,
-        render_grid_size=32,
+        render_options=ClassRenderOptions(
+            map_name="sharpened",
+            image_size=128,
+            grid_size=32,
+        ),
     )
 
     results = json.loads((tmp_path / "class_orientations.json").read_text())
@@ -249,3 +252,16 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     ]
     assert (tmp_path / "chimerax" / "class_001.cxc").exists()
     assert (tmp_path / "chimerax" / "all_classes.cxc").exists()
+
+
+def test_class_render_options_validate_the_whole_rendering_policy():
+    import pytest
+
+    with pytest.raises(ValueError, match="rendering map"):
+        ClassRenderOptions(map_name="unknown")
+    with pytest.raises(ValueError, match="background"):
+        ClassRenderOptions(background="blue")
+    with pytest.raises(ValueError, match="192"):
+        ClassRenderOptions(grid_size=193)
+    with pytest.raises(ValueError, match="64"):
+        ClassRenderOptions(image_size=63)

@@ -13,8 +13,8 @@ The job:
    class average;
 7. resamples the class and map to a common physical grid (at most 128 pixels);
 8. extracts a solid triangular isosurface from the Rendering Map;
-9. displays class average, matched projection, exact 3D surface, and oblique 3D
-   surface in pages of ten classes.
+9. displays the class average, Matched Projection, Camera View Render, and
+   Oblique Inspection Render in pages of ten classes.
 
 ## Compatibility
 
@@ -98,7 +98,7 @@ Camera matching still uses the unsharpened `map`. Rendering options are:
 --surface-level FLOAT          Raw contour value; default is mean + 1.5 sigma
 --render-background dark|light
 --oblique-tilt-degrees FLOAT   Default: 20
---render-size INTEGER          Independent PNG size; default: 1024
+--render-size INTEGER          Camera View Render and Oblique Inspection Render PNG size; default: 1024
 --render-grid-size INTEGER     Maximum surface grid; default: 192
 ```
 
@@ -148,9 +148,9 @@ keep their original `blob/idx`, including gaps; they are never renumbered.
   selected class average.
 - `match_confidence` remains visible when low; it is not silently discarded.
 - Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
-- The exact surface render uses the solved orthographic camera. The oblique
-  render is deliberately tilted for depth perception and is not another camera
-  solution.
+- The Camera View Render uses the solved orthographic camera. The Oblique
+  Inspection Render is deliberately tilted for depth perception and is not
+  another camera solution.
 - The automatic Surface Level starts at mean + 1.5 sigma, lowers it when that
   contour is unusable, records the chosen value, and removes density islands
   smaller than 1% of the main component. Use `--surface-level` to reproduce a

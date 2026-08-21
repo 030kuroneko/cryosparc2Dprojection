@@ -4,6 +4,7 @@ from cryosparc_2d_projection.external_job import (
     SourceOutput,
     run_external_orientation_job,
 )
+from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
 
 def parse_class_numbers(value):
@@ -23,6 +24,18 @@ def _integer_at_least(minimum):
         number = int(value)
         if number < minimum:
             raise argparse.ArgumentTypeError(f"value must be at least {minimum}")
+        return number
+
+    return parse
+
+
+def _integer_between(minimum, maximum):
+    def parse(value):
+        number = int(value)
+        if not minimum <= number <= maximum:
+            raise argparse.ArgumentTypeError(
+                f"value must be between {minimum} and {maximum}"
+            )
         return number
 
     return parse
@@ -90,11 +103,13 @@ def build_parser():
         "--render-size",
         type=_integer_at_least(64),
         default=1024,
-        help="Independent exact and oblique PNG size in pixels",
+        help=(
+            "Camera View Render and Oblique Inspection Render PNG size in pixels"
+        ),
     )
     parser.add_argument(
         "--render-grid-size",
-        type=_integer_at_least(2),
+        type=_integer_between(2, 192),
         default=192,
         help="Maximum 3D grid size used to extract the rendering surface",
     )
@@ -125,11 +140,13 @@ def main(argv=None, *, client_factory=None):
         volume_source=SourceOutput(args.refinement_job, args.volume_output),
         symmetry=args.symmetry,
         interactive_class_numbers=args.classes or (),
-        surface_level=args.surface_level,
-        render_map=args.render_map,
-        render_background=args.render_background,
-        oblique_tilt_degrees=args.oblique_tilt_degrees,
-        render_size=args.render_size,
-        render_grid_size=args.render_grid_size,
+        render_options=ClassRenderOptions(
+            surface_level=args.surface_level,
+            map_name=args.render_map,
+            background=args.render_background,
+            oblique_tilt_degrees=args.oblique_tilt_degrees,
+            image_size=args.render_size,
+            grid_size=args.render_grid_size,
+        ),
     )
     return 0

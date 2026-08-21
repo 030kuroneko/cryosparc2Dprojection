@@ -214,3 +214,17 @@ def test_cli_rejects_rendering_sizes_below_supported_minimum(option, value):
                 option, value,
             ]
         )
+
+
+def test_cli_rejects_render_grid_larger_than_192_cubed():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--url", "http://localhost:39000",
+                "--project", "P1",
+                "--workspace", "W9",
+                "--select-job", "J1025",
+                "--refinement-job", "J1083",
+                "--render-grid-size", "193",
+            ]
+        )

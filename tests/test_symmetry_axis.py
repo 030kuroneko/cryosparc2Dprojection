@@ -21,5 +21,6 @@ def test_icosahedral_axes_are_named_only_within_the_threshold():
     assert three_fold.label == "3-fold"
     assert five_fold.label == "5-fold"
     assert ten_degrees_from_two_fold.label == "general"
+    assert ten_degrees_from_two_fold.nearest_label == "2-fold"
     assert ten_degrees_from_two_fold.nearest_order == 2
     assert np.isclose(ten_degrees_from_two_fold.distance_degrees, 10.0)

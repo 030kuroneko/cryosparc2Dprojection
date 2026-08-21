@@ -99,17 +99,21 @@ def create_class_preview_figure(
         )
         projection_axis.axis("off")
 
-        exact_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 3)
-        with Image.open(render_paths[class_id].exact_path) as exact_image:
-            exact_axis.imshow(exact_image.convert("RGB"))
-        exact_axis.set_title("Exact 3D surface")
-        exact_axis.axis("off")
+        camera_view_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 3)
+        with Image.open(
+            render_paths[class_id].camera_view_path
+        ) as camera_view_image:
+            camera_view_axis.imshow(camera_view_image.convert("RGB"))
+        camera_view_axis.set_title("Camera View Render")
+        camera_view_axis.axis("off")
 
-        oblique_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 4)
-        with Image.open(render_paths[class_id].oblique_path) as oblique_image:
-            oblique_axis.imshow(oblique_image.convert("RGB"))
-        oblique_axis.set_title("Oblique 3D surface")
-        oblique_axis.axis("off")
+        inspection_axis = figure.add_subplot(len(class_ids), 4, row * 4 + 4)
+        with Image.open(
+            render_paths[class_id].oblique_inspection_path
+        ) as inspection_image:
+            inspection_axis.imshow(inspection_image.convert("RGB"))
+        inspection_axis.set_title("Oblique Inspection Render")
+        inspection_axis.axis("off")
 
     return figure
 
