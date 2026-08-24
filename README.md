@@ -101,6 +101,19 @@ Camera matching still uses the unsharpened `map`. Rendering options are:
 --render-grid-size INTEGER     Maximum surface grid; default: 192
 ```
 
+The comparison preview also reports a Diagnostic Band-Limited Score. Its
+defaults can be overridden without changing camera selection:
+
+```text
+--diagnostic-low-resolution-A FLOAT        Default: 80
+--diagnostic-high-resolution-A FLOAT       Default: 15
+--diagnostic-mask-radius-fraction FLOAT    Default: 0.45 of box width
+--diagnostic-mask-edge-fraction FLOAT      Default: 0.05 of box width
+```
+
+The effective frequency limits are clipped to the matching box extent and
+Nyquist resolution and recorded in `class_orientations.json`.
+
 To adjust the 3D density threshold explicitly, pass the raw Surface Level used
 by the CryoSPARC Volume Viewer, for example:
 
@@ -136,7 +149,8 @@ The created External Job contains:
   standard CryoSPARC `map` slot;
 - `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
 - `class_orientations.json`: full rotation matrix, quaternion, direction, roll,
-  shift, match score, confidence, angular spread, and Surface Level;
+  shift, raw match score, Diagnostic Band-Limited Score with reproducibility
+  metadata, confidence, angular spread, and Surface Level;
 - `class_projections.mrcs`: one matched simulated projection per class;
 - `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
 - `renders/class_NNN_comparison.png`: three-column Class Result;
@@ -155,6 +169,10 @@ keep their original `blob/idx`, including gaps; they are never renumbered.
   then refines both viewing direction and in-plane rotation against the actual
   selected class average.
 - `match_confidence` remains visible when low; it is not silently discarded.
+- `match_score` remains the raw score used to select the camera. The separately
+  reported Diagnostic Band-Limited Score checks the selected match inside a
+  physical frequency band and soft circular mask; it does not rerank cameras,
+  define a second-best margin, or represent a probability.
 - Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
 - Version 0.1 rejects symmetry conventions other than `C1` and CryoSPARC `I`.
   Support for `C<n>`, `D<n>`, and `T` is deferred until convention integration

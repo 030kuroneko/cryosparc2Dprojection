@@ -139,6 +139,14 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
             "64",
             "--render-grid-size",
             "3",
+            "--diagnostic-low-resolution-A",
+            "30",
+            "--diagnostic-high-resolution-A",
+            "8",
+            "--diagnostic-mask-radius-fraction",
+            "0.4",
+            "--diagnostic-mask-edge-fraction",
+            "0.08",
         ],
         client_factory=lambda url: client,
     )
@@ -158,6 +166,13 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
         "image_size": 64,
         "grid_size": 3,
     }
+    diagnostic = results["classes"][0]["camera"][
+        "diagnostic_band_limited_score"
+    ]
+    assert diagnostic["band_low_resolution_A_requested"] == 30.0
+    assert diagnostic["band_high_resolution_A_requested"] == 8.0
+    assert np.isclose(diagnostic["mask_radius_px"], 1.2)
+    assert np.isclose(diagnostic["mask_edge_width_px"], 0.24)
 
 
 def test_cli_accepts_one_based_class_numbers():

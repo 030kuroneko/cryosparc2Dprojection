@@ -47,6 +47,7 @@ def create_class_preview_pages(
     orientations,
     render_paths,
     *,
+    diagnostic_scores=None,
     page_size=10,
 ):
     """Create three-column Class Result pages with bounded row counts."""
@@ -58,6 +59,7 @@ def create_class_preview_pages(
             cameras,
             orientations,
             render_paths,
+            diagnostic_scores=diagnostic_scores,
             class_ids=class_ids[start : start + page_size],
         )
         for start in range(0, len(class_ids), page_size)
@@ -71,6 +73,7 @@ def create_class_preview_figure(
     orientations,
     render_paths,
     *,
+    diagnostic_scores=None,
     class_ids,
 ):
     """Create one three-column Class Result figure for the requested classes."""
@@ -96,9 +99,23 @@ def create_class_preview_figure(
         projection_axis.imshow(
             np.flipud(projections[projection_rows[class_id]]), cmap="gray"
         )
-        projection_axis.set_title(
-            f"Matched | score={cameras[class_id].match_score:.3f}"
-        )
+        projection_title = f"Matched | raw={cameras[class_id].match_score:.3f}"
+        if diagnostic_scores is not None:
+            diagnostic = diagnostic_scores[class_id]
+            if diagnostic.valid:
+                low_resolution = diagnostic.metadata[
+                    "band_low_resolution_A_effective"
+                ]
+                high_resolution = diagnostic.metadata[
+                    "band_high_resolution_A_effective"
+                ]
+                projection_title += (
+                    f"\nband ({low_resolution:g}–{high_resolution:g} Å)="
+                    f"{diagnostic.score:.3f}"
+                )
+            else:
+                projection_title += "\nband=invalid"
+        projection_axis.set_title(projection_title)
         projection_axis.axis("off")
 
         camera_view_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 3)

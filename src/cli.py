@@ -5,6 +5,7 @@ from cryosparc_2d_projection.external_job import (
     run_external_orientation_job,
 )
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
+from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
 
 
@@ -114,6 +115,30 @@ def build_parser():
         default=192,
         help="Maximum 3D grid size used to extract the rendering surface",
     )
+    parser.add_argument(
+        "--diagnostic-low-resolution-A",
+        type=float,
+        default=80.0,
+        help="Low-resolution edge in Angstrom for the diagnostic score",
+    )
+    parser.add_argument(
+        "--diagnostic-high-resolution-A",
+        type=float,
+        default=15.0,
+        help="High-resolution edge in Angstrom for the diagnostic score",
+    )
+    parser.add_argument(
+        "--diagnostic-mask-radius-fraction",
+        type=float,
+        default=0.45,
+        help="Full-weight mask radius as a fraction of matching box width",
+    )
+    parser.add_argument(
+        "--diagnostic-mask-edge-fraction",
+        type=float,
+        default=0.05,
+        help="Cosine mask edge width as a fraction of matching box width",
+    )
     return parser
 
 
@@ -147,6 +172,12 @@ def main(argv=None, *, client_factory=None):
             background=args.render_background,
             image_size=args.render_size,
             grid_size=args.render_grid_size,
+        ),
+        diagnostic_score_config=BandLimitedScoreConfig(
+            low_resolution_A=args.diagnostic_low_resolution_A,
+            high_resolution_A=args.diagnostic_high_resolution_A,
+            mask_radius_fraction=args.diagnostic_mask_radius_fraction,
+            mask_edge_fraction=args.diagnostic_mask_edge_fraction,
         ),
     )
     return 0

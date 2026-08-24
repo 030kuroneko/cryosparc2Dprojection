@@ -40,6 +40,10 @@ _Avoid_: Projection only
 Evidence that a Class Camera Orientation is reliable, based on projection similarity, separation from competing orientations, and orientation spread.
 _Avoid_: Correlation alone, certainty
 
+**Diagnostic Band-Limited Score**:
+A softly masked, physically band-limited similarity score calculated only for the Class Camera Orientation selected by the existing search. It diagnoses whether that selected match remains similar within the declared frequency band and spatial region; it does not rank orientations, establish a global margin, or represent a probability.
+_Avoid_: Match Confidence, ranking score, probability
+
 **Low-Confidence Class Result**:
 A visible Class Result whose Match Confidence does not meet the reporting threshold. It is flagged rather than hidden or treated as a failed job.
 _Avoid_: Rejected class, failed class

@@ -9,6 +9,10 @@ from cryosparc_2d_projection.class_poses import analyze_class_orientations
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
 from cryosparc_2d_projection.matching_grid import prepare_matching_grid
 from cryosparc_2d_projection.projection import rotate_volume_at_rotation
+from cryosparc_2d_projection.scoring import (
+    BandLimitedScoreConfig,
+    compute_diagnostic_band_limited_score,
+)
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     build_surface_model,
@@ -47,10 +51,14 @@ def run_external_orientation_job(
     symmetry="C1",
     interactive_class_numbers=(),
     render_options=None,
+    diagnostic_score_config=None,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
     symmetry = SupportedSymmetry.parse(symmetry).value
     render_options = render_options or ClassRenderOptions()
+    diagnostic_score_config = (
+        diagnostic_score_config or BandLimitedScoreConfig()
+    )
     rendering_slot = (
         "map_sharp" if render_options.map_name == "sharpened" else "map"
     )
@@ -160,6 +168,7 @@ def run_external_orientation_job(
             project, job.load_input("select_2d_templates")
         )
         camera_results = {}
+        diagnostic_scores = {}
         matching_grids = {}
         for class_id in sorted(orientations):
             refinement_poses, alignment_2d_poses = _matched_particle_poses(
@@ -181,6 +190,14 @@ def run_external_orientation_job(
                 alignment_2d_poses=alignment_2d_poses,
                 symmetry=symmetry,
             )
+            diagnostic_scores[class_id] = (
+                compute_diagnostic_band_limited_score(
+                    matching_grid.class_average,
+                    camera_results[class_id].matched_projection,
+                    pixel_size_A=matching_grid.pixel_size,
+                    settings=diagnostic_score_config,
+                )
+            )
         surface = build_surface_model(
             rendering_volume_data,
             surface_level=render_options.surface_level,
@@ -201,6 +218,16 @@ def run_external_orientation_job(
         render_paths = {}
         for class_entry in artifact["classes"]:
             camera = camera_results[class_entry["class_id"]]
+            diagnostic = diagnostic_scores[class_entry["class_id"]]
+            diagnostic_metadata = {
+                key: value
+                for key, value in diagnostic.metadata.items()
+                if key
+                not in {
+                    "band_limited_score_valid",
+                    "band_limited_invalid_reason",
+                }
+            }
             class_entry["camera"] = {
                 "rotation_matrix": camera.rotation_matrix.tolist(),
                 "quaternion_xyzw": camera.quaternion_xyzw.tolist(),
@@ -211,6 +238,12 @@ def run_external_orientation_job(
                 "second_best_score": camera.second_best_score,
                 "score_margin": camera.score_margin,
                 "match_confidence": camera.match_confidence,
+                "diagnostic_band_limited_score": {
+                    "score": diagnostic.score,
+                    "valid": diagnostic.valid,
+                    "invalid_reason": diagnostic.invalid_reason,
+                    **diagnostic_metadata,
+                },
                 "matching_box_size": int(
                     matching_grids[class_entry["class_id"]].class_average.shape[0]
                 ),
@@ -270,6 +303,7 @@ def run_external_orientation_job(
             camera_results,
             orientations,
             render_paths,
+            diagnostic_scores=diagnostic_scores,
             page_size=10,
         )
         for class_id in sorted(orientations):
@@ -279,6 +313,7 @@ def run_external_orientation_job(
                 camera_results,
                 orientations,
                 render_paths,
+                diagnostic_scores=diagnostic_scores,
                 class_ids=[class_id],
             )
             comparison.savefig(

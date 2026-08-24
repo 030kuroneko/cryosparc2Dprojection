@@ -63,6 +63,17 @@ def test_class_preview_pages_contain_at_most_ten_three_column_rows(tmp_path):
         cameras,
         orientations,
         render_paths,
+        diagnostic_scores={
+            class_id: SimpleNamespace(
+                score=0.75,
+                valid=True,
+                metadata={
+                    "band_low_resolution_A_effective": 80.0,
+                    "band_high_resolution_A_effective": 15.0,
+                },
+            )
+            for class_id in class_ids
+        },
         page_size=10,
     )
 
@@ -70,6 +81,9 @@ def test_class_preview_pages_contain_at_most_ten_three_column_rows(tmp_path):
     assert len(pages[0].axes) == 30
     assert len(pages[1].axes) == 3
     assert pages[0].axes[2].get_title() == "Camera View Render"
+    assert pages[0].axes[1].get_title() == (
+        "Matched | raw=0.900\nband (80–15 Å)=0.750"
+    )
 
 
 def test_class_result_displays_2d_images_in_cryosparc_display_orientation(tmp_path):

@@ -11,6 +11,7 @@ from cryosparc_2d_projection.external_job import (
     run_external_orientation_job,
 )
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
+from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 
 
 class FakeExternalJob:
@@ -191,6 +192,10 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
             image_size=128,
             grid_size=32,
         ),
+        diagnostic_score_config=BandLimitedScoreConfig(
+            low_resolution_A=6.0,
+            high_resolution_A=3.0,
+        ),
     )
 
     results = json.loads((tmp_path / "class_orientations.json").read_text())
@@ -212,6 +217,14 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     ])
     assert np.allclose(class_result["camera"]["projection_shift_pixels"], [0.0, 0.0])
     assert np.isclose(class_result["camera"]["match_score"], 1.0)
+    diagnostic_score = class_result["camera"]["diagnostic_band_limited_score"]
+    assert np.isclose(diagnostic_score["score"], 1.0)
+    assert diagnostic_score["valid"] is True
+    assert diagnostic_score["invalid_reason"] is None
+    assert diagnostic_score["score_role"] == "diagnostic_only"
+    assert diagnostic_score["band_low_resolution_A_requested"] == 6.0
+    assert diagnostic_score["band_high_resolution_A_requested"] == 3.0
+    assert diagnostic_score["matching_pixel_size_A"] == 1.5
     assert class_result["camera"]["second_best_score"] < 1.0
     assert class_result["camera"]["score_margin"] > 0.0
     assert class_result["camera"]["match_confidence"] == "high"
