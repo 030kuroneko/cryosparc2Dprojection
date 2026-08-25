@@ -85,7 +85,7 @@ def test_class_preview_pages_contain_at_most_ten_three_column_rows(tmp_path):
     assert pages[1].dpi == 300
     assert pages[0].axes[2].get_title() == "Camera View Render"
     assert pages[0].axes[1].get_title() == (
-        "Matched | raw=0.900\nband (80–15 Å)=0.750"
+        "Matched | search raw=0.900\nband (80–15 Å)=0.750"
     )
 
 

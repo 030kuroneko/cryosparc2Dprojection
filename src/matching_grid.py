@@ -11,6 +11,32 @@ class MatchingGrid:
     pixel_size: float
 
 
+def prepare_native_matching_grid(
+    class_average,
+    volume,
+    *,
+    class_pixel_size,
+    volume_pixel_size,
+):
+    """Prepare a map on the native Class Average grid.
+
+    Unlike :func:`prepare_matching_grid`, this seam deliberately has no
+    bounded search size.  The returned Class Average keeps its original box
+    and pixel size, and the Matching Map is resampled/cropped/padded to the
+    same physical grid so a fixed camera can be regenerated for presentation.
+    """
+    class_average = np.asarray(class_average)
+    if class_average.ndim != 2 or class_average.shape[0] != class_average.shape[1]:
+        raise ValueError("class average must be a square 2D image")
+    return prepare_matching_grid(
+        class_average,
+        volume,
+        class_pixel_size=class_pixel_size,
+        volume_pixel_size=volume_pixel_size,
+        max_size=class_average.shape[0],
+    )
+
+
 def prepare_matching_grid(
     class_average,
     volume,

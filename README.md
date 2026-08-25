@@ -98,7 +98,7 @@ Camera matching still uses the unsharpened `map`. Rendering options are:
 --surface-level FLOAT          Raw contour value; default is mean + 1.5 sigma
 --render-background dark|light
 --render-size INTEGER          Camera View Render PNG size; default: automatic
---render-grid-size INTEGER     Maximum surface grid; default: 192
+--render-grid-size INTEGER     Optional maximum surface grid; default: native map
 --comparison-dpi INTEGER       All three-column Class Results; default: 100
 --preview-page-size INTEGER    Classes per CryoSPARC preview page; default: 10
 ```
@@ -109,14 +109,29 @@ warning because the third column may be upscaled. DPI has no hard maximum;
 values above 600 report the estimated page dimensions and RGBA memory in both
 the terminal and CryoSPARC Job Log.
 
+When `--render-grid-size` is omitted, surface extraction uses the complete
+native grid of the selected Rendering Map. An explicit value of at least 2
+reduces the grid proportionally without upsampling or distorting non-cubic
+maps; it has no fixed software maximum. The terminal, Job Log, and JSON record
+the original and effective shapes, downsampling state, and a lower-bound memory
+estimate. Estimates above 1 GiB warn but continue. A memory failure never
+silently lowers quality and reports an explicit smaller retry value.
+
 For a high-quality export with one class per Event Log page:
 
 ```bash
 --comparison-dpi 600 --preview-page-size 1
 ```
 
-This changes only Class Result presentation. It does not alter the Class
-Average, Matched Projection calculation, camera search, or matching scores.
+This changes only Class Result raster presentation. It does not alter the Class
+Average, Search Projection, native-grid Matched Projection, Surface Sampling
+Grid, camera search, or matching scores.
+
+Camera selection and the raw search score use a bounded Search Projection of
+at most 128 pixels per side. After selecting the camera, the job regenerates a
+Matched Projection from the unsharpened Matching Map at the native Class
+Average box and pixel size and re-optimizes only XY translation. The
+Diagnostic Band-Limited Score is calculated from this native displayed pair.
 
 The comparison preview also reports a Diagnostic Band-Limited Score. Its
 defaults can be overridden without changing camera selection:
@@ -161,7 +176,10 @@ uv run cryosparc-2d-projection \
 
 The created External Job contains:
 
-- `matched_projections`: a registered CryoSPARC template stack;
+- `matched_projections`: native Class Average-grid projections used in Class
+  Results;
+- `search_projections`: bounded projections that produced the raw camera-search
+  scores;
 - `rendering_map`: the selected unsharpened or sharpened Rendering Map in the
   standard CryoSPARC `map` slot;
 - `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
@@ -169,7 +187,8 @@ The created External Job contains:
   shift, raw match score, Diagnostic Band-Limited Score with reproducibility
   metadata, presentation resolution, warnings, confidence, angular spread, and
   Surface Level;
-- `class_projections.mrcs`: one matched simulated projection per class;
+- `class_projections.mrcs`: one native-grid matched projection per class;
+- `search_projections.mrcs`: one bounded scored projection per class;
 - `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
 - `renders/class_NNN_comparison.png`: three-column Class Result;
 - `chimerax/all_classes.cxc` and one ChimeraX script per class;
@@ -187,10 +206,11 @@ keep their original `blob/idx`, including gaps; they are never renumbered.
   then refines both viewing direction and in-plane rotation against the actual
   selected class average.
 - `match_confidence` remains visible when low; it is not silently discarded.
-- `match_score` remains the raw score used to select the camera. The separately
-  reported Diagnostic Band-Limited Score checks the selected match inside a
-  physical frequency band and soft circular mask; it does not rerank cameras,
-  define a second-best margin, or represent a probability.
+- `match_score` remains the raw score used to select the camera from bounded
+  Search Projections. The separately reported Diagnostic Band-Limited Score
+  checks the native-grid Class Average and Matched Projection inside a physical
+  frequency band and soft circular mask; it does not rerank cameras, define a
+  second-best margin, or represent a probability.
 - Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
 - Version 0.1 rejects symmetry conventions other than `C1` and CryoSPARC `I`.
   Support for `C<n>`, `D<n>`, and `T` is deferred until convention integration

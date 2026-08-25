@@ -8,7 +8,10 @@ from cryosparc import mrc
 from cryosparc_2d_projection.class_poses import analyze_class_orientations
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
 from cryosparc_2d_projection.matching_grid import prepare_matching_grid
-from cryosparc_2d_projection.projection import rotate_volume_at_rotation
+from cryosparc_2d_projection.projection import (
+    project_native_matched_projection,
+    rotate_volume_at_rotation,
+)
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.scoring import (
     BandLimitedScoreConfig,
@@ -16,6 +19,7 @@ from cryosparc_2d_projection.scoring import (
 )
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
+    SurfaceRenderMemoryError,
     build_surface_model,
     write_camera_view_render,
 )
@@ -55,6 +59,7 @@ def run_external_orientation_job(
     diagnostic_score_config=None,
     comparison_options=None,
     warning_callback=None,
+    status_callback=None,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
     symmetry = SupportedSymmetry.parse(symmetry).value
@@ -113,6 +118,12 @@ def run_external_orientation_job(
         title="Matched class projections",
     )
     job.add_output(
+        type="template",
+        name="search_projections",
+        slots=["blob"],
+        title="Bounded camera-search projections",
+    )
+    job.add_output(
         type="volume",
         name="rendering_map",
         slots=["map"],
@@ -140,6 +151,10 @@ def run_external_orientation_job(
             job.log(warning)
             if warning_callback is not None:
                 warning_callback(warning)
+        class_averages = _load_class_averages(
+            project, job.load_input("select_2d_templates")
+        )
+        _validate_native_class_shapes(class_averages, orientations)
         artifact = {
             "cryosparc_version": TARGET_CRYOSPARC_VERSION,
             "symmetry": symmetry,
@@ -195,10 +210,8 @@ def run_external_orientation_job(
         job.save_output("rendering_map", rendering_output)
         select_particles = job.load_input("select_2d_particles")
         refinement_particles = job.load_input("refinement_particles")
-        class_averages = _load_class_averages(
-            project, job.load_input("select_2d_templates")
-        )
         camera_results = {}
+        native_projection_results = {}
         diagnostic_scores = {}
         matching_grids = {}
         for class_id in sorted(orientations):
@@ -221,19 +234,46 @@ def run_external_orientation_job(
                 alignment_2d_poses=alignment_2d_poses,
                 symmetry=symmetry,
             )
+            native_projection_results[class_id] = project_native_matched_projection(
+                template.image,
+                volume_data,
+                camera_results[class_id].rotation_matrix,
+                class_pixel_size=template.pixel_size,
+                volume_pixel_size=pixel_size,
+            )
             diagnostic_scores[class_id] = (
                 compute_diagnostic_band_limited_score(
-                    matching_grid.class_average,
-                    camera_results[class_id].matched_projection,
-                    pixel_size_A=matching_grid.pixel_size,
+                    template.image,
+                    native_projection_results[class_id].matched_projection,
+                    pixel_size_A=template.pixel_size,
                     settings=diagnostic_score_config,
                 )
             )
-        surface = build_surface_model(
-            rendering_volume_data,
-            surface_level=render_options.surface_level,
-            max_size=render_options.grid_size,
+        try:
+            surface = build_surface_model(
+                rendering_volume_data,
+                surface_level=render_options.surface_level,
+                max_size=render_options.grid_size,
+            )
+        except SurfaceRenderMemoryError as error:
+            job.log(str(error))
+            raise
+        sampling_grid = surface.sampling_grid
+        sampling_shape = " x ".join(
+            str(size) for size in sampling_grid.sampled_shape
         )
+        sampling_message = (
+            f"Surface Sampling Grid: {sampling_shape} "
+            f"({sampling_grid.mode}, estimated minimum working memory "
+            f"{sampling_grid.estimated_memory_gib:.3f} GiB)."
+        )
+        job.log(sampling_message)
+        if status_callback is not None:
+            status_callback(sampling_message)
+        for warning in sampling_grid.warnings:
+            job.log(warning)
+            if warning_callback is not None:
+                warning_callback(warning)
         job.log(f"Surface Level: {surface.surface_level:.6g}")
         if surface.warning:
             job.log(surface.warning)
@@ -244,11 +284,14 @@ def run_external_orientation_job(
             "warning": surface.warning,
             "background": render_options.background,
             "image_size": resolved_presentation.effective_render_size,
-            "grid_size": int(render_options.grid_size),
+            "grid_size": sampling_grid.effective_grid_size,
+            **sampling_grid.as_dict(),
         }
         render_paths = {}
         for class_entry in artifact["classes"]:
             camera = camera_results[class_entry["class_id"]]
+            native_projection = native_projection_results[class_entry["class_id"]]
+            template = class_averages[class_entry["class_id"]]
             diagnostic = diagnostic_scores[class_entry["class_id"]]
             diagnostic_metadata = {
                 key: value
@@ -264,7 +307,12 @@ def run_external_orientation_job(
                 "quaternion_xyzw": camera.quaternion_xyzw.tolist(),
                 "view_direction": camera.view_direction.tolist(),
                 "in_plane_rotation_degrees": camera.in_plane_rotation_degrees,
-                "projection_shift_pixels": camera.projection_shift_pixels.tolist(),
+                "projection_shift_pixels": (
+                    native_projection.projection_shift_pixels.tolist()
+                ),
+                "search_projection_shift_pixels": (
+                    camera.projection_shift_pixels.tolist()
+                ),
                 "match_score": camera.match_score,
                 "second_best_score": camera.second_best_score,
                 "score_margin": camera.score_margin,
@@ -275,26 +323,32 @@ def run_external_orientation_job(
                     "invalid_reason": diagnostic.invalid_reason,
                     **diagnostic_metadata,
                 },
-                "matching_box_size": int(
+                "search_box_size": int(
                     matching_grids[class_entry["class_id"]].class_average.shape[0]
                 ),
-                "matching_pixel_size_A": matching_grids[
+                "search_pixel_size_A": matching_grids[
                     class_entry["class_id"]
                 ].pixel_size,
+                "matching_box_size": int(template.image.shape[0]),
+                "matching_pixel_size_A": template.pixel_size,
                 "search_evaluation_count": camera.search_evaluation_count,
                 "coordinate_convention": (
                     "right-handed Cartesian active rotation; "
                     "image rows increase downward"
                 ),
             }
-            render_paths[class_entry["class_id"]] = write_camera_view_render(
-                job_directory / "renders",
-                surface=surface,
-                rotation_matrix=camera.rotation_matrix,
-                class_number=class_entry["class_number"],
-                image_size=resolved_presentation.effective_render_size,
-                background=render_options.background,
-            )
+            try:
+                render_paths[class_entry["class_id"]] = write_camera_view_render(
+                    job_directory / "renders",
+                    surface=surface,
+                    rotation_matrix=camera.rotation_matrix,
+                    class_number=class_entry["class_number"],
+                    image_size=resolved_presentation.effective_render_size,
+                    background=render_options.background,
+                )
+            except SurfaceRenderMemoryError as error:
+                job.log(str(error))
+                raise
         write_chimerax_bundle(
             job_directory / "chimerax",
             map_path=str(rendering_volume_path),
@@ -302,14 +356,31 @@ def run_external_orientation_job(
         )
         output_path.write_text(json.dumps(artifact, indent=2) + "\n")
         projections = np.asarray(
-            [camera_results[class_id].matched_projection for class_id in sorted(orientations)],
+            [
+                native_projection_results[class_id].matched_projection
+                for class_id in sorted(orientations)
+            ],
             dtype=np.float32,
         )
-        projection_pixel_size = matching_grids[sorted(orientations)[0]].pixel_size
+        search_projections = np.asarray(
+            [
+                camera_results[class_id].matched_projection
+                for class_id in sorted(orientations)
+            ],
+            dtype=np.float32,
+        )
+        first_class_id = sorted(orientations)[0]
+        projection_pixel_size = class_averages[first_class_id].pixel_size
+        search_projection_pixel_size = matching_grids[first_class_id].pixel_size
         mrc.write(
             job_directory / "class_projections.mrcs",
             projections,
             projection_pixel_size,
+        )
+        mrc.write(
+            job_directory / "search_projections.mrcs",
+            search_projections,
+            search_projection_pixel_size,
         )
         for class_number in interactive_class_numbers or ():
             class_id = class_number - 1
@@ -361,6 +432,18 @@ def run_external_orientation_job(
         projection_output["blob/shape"][:] = projections.shape[1:]
         projection_output["blob/psize_A"][:] = projection_pixel_size
         job.save_output("matched_projections", projection_output, image=preview)
+        search_projection_output = job.alloc_output(
+            "search_projections", len(search_projections)
+        )
+        search_projection_output["blob/path"][:] = (
+            f">{job.uid}/search_projections.mrcs"
+        )
+        search_projection_output["blob/idx"][:] = np.arange(
+            len(search_projections)
+        )
+        search_projection_output["blob/shape"][:] = search_projections.shape[1:]
+        search_projection_output["blob/psize_A"][:] = search_projection_pixel_size
+        job.save_output("search_projections", search_projection_output)
         for page_number, page in enumerate(preview_pages, start=1):
             job.log_plot(
                 page,
@@ -397,6 +480,21 @@ def _load_class_averages(project, templates):
             image=np.asarray(image), pixel_size=float(pixel_size)
         )
     return class_averages
+
+
+def _validate_native_class_shapes(class_averages, orientations):
+    shapes = {
+        class_id: tuple(class_averages[class_id].image.shape)
+        for class_id in sorted(orientations)
+    }
+    if len(set(shapes.values())) <= 1:
+        return
+    details = "; ".join(
+        f"Class {class_id + 1} {shape}" for class_id, shape in shapes.items()
+    )
+    raise ValueError(
+        "Native Class Average boxes must have one common shape: " + details
+    )
 
 
 def _matched_particle_poses(select_particles, refinement_particles, class_id):
