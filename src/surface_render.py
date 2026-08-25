@@ -23,7 +23,7 @@ class ClassRenderOptions:
     surface_level: float | None = None
     map_name: str = "map"
     background: str = "dark"
-    image_size: int = 1024
+    image_size: int | None = None
     grid_size: int = 192
 
     def __post_init__(self):
@@ -31,7 +31,7 @@ class ClassRenderOptions:
             raise ValueError("rendering map must be 'map' or 'sharpened'")
         if self.background not in {"dark", "light"}:
             raise ValueError("render background must be 'dark' or 'light'")
-        if self.image_size < 64:
+        if self.image_size is not None and self.image_size < 64:
             raise ValueError("render image size must be at least 64 pixels")
         if not 2 <= self.grid_size <= 192:
             raise ValueError("render grid size must be between 2 and 192")

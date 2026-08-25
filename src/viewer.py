@@ -2,6 +2,8 @@ from pathlib import Path
 
 import numpy as np
 
+from cryosparc_2d_projection.presentation import ComparisonRenderOptions
+
 
 def write_chimerax_bundle(output_directory, *, map_path, cameras):
     """Write per-class and master ChimeraX camera scripts."""
@@ -48,9 +50,16 @@ def create_class_preview_pages(
     render_paths,
     *,
     diagnostic_scores=None,
-    page_size=10,
+    comparison_options=None,
+    page_size=None,
 ):
     """Create three-column Class Result pages with bounded row counts."""
+    comparison_options = comparison_options or ComparisonRenderOptions()
+    effective_page_size = (
+        comparison_options.page_size if page_size is None else page_size
+    )
+    if type(effective_page_size) is not int or effective_page_size <= 0:
+        raise ValueError("preview page size must be a positive integer")
     class_ids = sorted(orientations)
     return [
         create_class_preview_figure(
@@ -60,9 +69,10 @@ def create_class_preview_pages(
             orientations,
             render_paths,
             diagnostic_scores=diagnostic_scores,
-            class_ids=class_ids[start : start + page_size],
+            comparison_options=comparison_options,
+            class_ids=class_ids[start : start + effective_page_size],
         )
-        for start in range(0, len(class_ids), page_size)
+        for start in range(0, len(class_ids), effective_page_size)
     ]
 
 
@@ -74,6 +84,7 @@ def create_class_preview_figure(
     render_paths,
     *,
     diagnostic_scores=None,
+    comparison_options=None,
     class_ids,
 ):
     """Create one three-column Class Result figure for the requested classes."""
@@ -83,7 +94,12 @@ def create_class_preview_figure(
     projection_rows = {
         class_id: row for row, class_id in enumerate(sorted(orientations))
     }
-    figure = Figure(figsize=(9, 3 * len(class_ids)), constrained_layout=True)
+    comparison_options = comparison_options or ComparisonRenderOptions()
+    figure = Figure(
+        figsize=(9, 3 * len(class_ids)),
+        dpi=comparison_options.dpi,
+        constrained_layout=True,
+    )
 
     for row, class_id in enumerate(class_ids):
         orientation = orientations[class_id]

@@ -12,6 +12,8 @@ from cryosparc_2d_projection.external_job import (
 )
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
 from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
+from cryosparc_2d_projection.presentation import ComparisonRenderOptions
+from PIL import Image
 
 
 class FakeExternalJob:
@@ -71,8 +73,8 @@ class FakeExternalJob:
     def log(self, message):
         self.logs.append(message)
 
-    def log_plot(self, figure, text, formats):
-        self.plots.append((figure, text, formats))
+    def log_plot(self, figure, text, formats, savefig_kw=None):
+        self.plots.append((figure, text, formats, savefig_kw))
 
 
 class FakeProject:
@@ -196,12 +198,27 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
             low_resolution_A=6.0,
             high_resolution_A=3.0,
         ),
+        comparison_options=ComparisonRenderOptions(dpi=200, page_size=1),
     )
 
     results = json.loads((tmp_path / "class_orientations.json").read_text())
     assert results["cryosparc_version"] == "5.0.6"
     assert results["symmetry"] == "I"
     assert results["rendering"]["map"] == "sharpened"
+    assert results["presentation"] == {
+        "comparison_dpi": 200,
+        "preview_page_size": 1,
+        "requested_render_size": 128,
+        "effective_render_size": 128,
+        "render_size_was_automatic": False,
+        "estimated_page_width_px": 1800,
+        "estimated_page_height_px": 600,
+        "estimated_page_rgba_memory_bytes": 4320000,
+        "warnings": [
+            "Requested Camera View Render size 128 px is below the 600 px "
+            "recommended for 200 DPI; the third comparison column may appear blurred."
+        ],
+    }
     class_result = results["classes"][0]
     assert class_result["class_id"] == 0
     assert class_result["class_number"] == 1
@@ -249,6 +266,11 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert len(job.plots) == 1
     assert job.plots[0][1] == "Class camera preview 1/1"
     assert job.plots[0][2] == ["png"]
+    assert job.plots[0][3] == {
+        "dpi": 200,
+        "bbox_inches": "tight",
+        "pad_inches": 0,
+    }
     preview = job.plots[0][0]
     assert len(preview.axes) == 3
     assert np.allclose(
@@ -260,6 +282,8 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert (tmp_path / "renders" / "class_001_exact.png").exists()
     assert not (tmp_path / "renders" / "class_001_oblique.png").exists()
     assert (tmp_path / "renders" / "class_001_comparison.png").exists()
+    with Image.open(tmp_path / "renders" / "class_001_comparison.png") as comparison:
+        assert comparison.size == (1800, 600)
     projection_output, thumbnail = job.saved_outputs["matched_projections"]
     assert projection_output["blob/path"].tolist() == [
         ">J99/class_projections.mrcs"
@@ -286,6 +310,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert (tmp_path / "chimerax" / "class_001.cxc").exists()
     assert (tmp_path / "chimerax" / "all_classes.cxc").exists()
     assert any(message.startswith("Surface Level:") for message in job.logs)
+    assert any("third comparison column may appear blurred" in message for message in job.logs)
 
 
 def test_class_render_options_validate_the_whole_rendering_policy():

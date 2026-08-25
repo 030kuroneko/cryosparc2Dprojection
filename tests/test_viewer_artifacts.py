@@ -7,6 +7,7 @@ from cryosparc_2d_projection.viewer import (
     create_class_preview_pages,
     write_chimerax_bundle,
 )
+from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 
 
 def test_chimerax_bundle_reproduces_each_class_camera(tmp_path):
@@ -74,12 +75,14 @@ def test_class_preview_pages_contain_at_most_ten_three_column_rows(tmp_path):
             )
             for class_id in class_ids
         },
-        page_size=10,
+        comparison_options=ComparisonRenderOptions(dpi=300, page_size=10),
     )
 
     assert len(pages) == 2
     assert len(pages[0].axes) == 30
     assert len(pages[1].axes) == 3
+    assert pages[0].dpi == 300
+    assert pages[1].dpi == 300
     assert pages[0].axes[2].get_title() == "Camera View Render"
     assert pages[0].axes[1].get_title() == (
         "Matched | raw=0.900\nband (80–15 Å)=0.750"

@@ -1,10 +1,12 @@
 import argparse
+import sys
 
 from cryosparc_2d_projection.external_job import (
     SourceOutput,
     run_external_orientation_job,
 )
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
+from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
 
@@ -106,14 +108,25 @@ def build_parser():
     parser.add_argument(
         "--render-size",
         type=_integer_at_least(64),
-        default=1024,
-        help="Camera View Render PNG size in pixels",
+        help="Camera View Render PNG size (default: automatic from comparison DPI)",
     )
     parser.add_argument(
         "--render-grid-size",
         type=_integer_between(2, 192),
         default=192,
         help="Maximum 3D grid size used to extract the rendering surface",
+    )
+    parser.add_argument(
+        "--comparison-dpi",
+        type=_integer_at_least(1),
+        default=100,
+        help="DPI for all static three-column Class Result images",
+    )
+    parser.add_argument(
+        "--preview-page-size",
+        type=_integer_at_least(1),
+        default=10,
+        help="Number of classes per CryoSPARC preview page",
     )
     parser.add_argument(
         "--diagnostic-low-resolution-A",
@@ -178,6 +191,13 @@ def main(argv=None, *, client_factory=None):
             high_resolution_A=args.diagnostic_high_resolution_A,
             mask_radius_fraction=args.diagnostic_mask_radius_fraction,
             mask_edge_fraction=args.diagnostic_mask_edge_fraction,
+        ),
+        comparison_options=ComparisonRenderOptions(
+            dpi=args.comparison_dpi,
+            page_size=args.preview_page_size,
+        ),
+        warning_callback=lambda message: print(
+            f"WARNING: {message}", file=sys.stderr
         ),
     )
     return 0

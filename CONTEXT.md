@@ -36,6 +36,10 @@ _Avoid_: Treating `I1`, `I2`, or another unverified convention as an alias
 The 2D class average, Matched Projection, Camera View Render, orientation metadata, match score, and uncertainty for one selected class.
 _Avoid_: Projection only
 
+**Class Result Presentation Resolution**:
+The raster dimensions and display scale of a static three-column Class Result. Changing it does not alter the Class Average, Matched Projection, Class Camera Orientation, matching scores, or Camera View Render geometry.
+_Avoid_: Matching resolution, map resolution, projection calculation grid
+
 **Match Confidence**:
 Evidence that a Class Camera Orientation is reliable, based on projection similarity, separation from competing orientations, and orientation spread.
 _Avoid_: Correlation alone, certainty

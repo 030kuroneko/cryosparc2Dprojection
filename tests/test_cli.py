@@ -84,7 +84,7 @@ class Job:
     def log(self, message):
         pass
 
-    def log_plot(self, figure, text, formats):
+    def log_plot(self, figure, text, formats, savefig_kw=None):
         pass
 
 
@@ -110,7 +110,7 @@ class Client:
         return self.project
 
 
-def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
+def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path, capsys):
     client = Client(Project(Job(tmp_path)))
 
     exit_code = main(
@@ -139,6 +139,10 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
             "64",
             "--render-grid-size",
             "3",
+            "--comparison-dpi",
+            "200",
+            "--preview-page-size",
+            "1",
             "--diagnostic-low-resolution-A",
             "30",
             "--diagnostic-high-resolution-A",
@@ -166,6 +170,11 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path):
         "image_size": 64,
         "grid_size": 3,
     }
+    assert results["presentation"]["comparison_dpi"] == 200
+    assert results["presentation"]["preview_page_size"] == 1
+    assert results["presentation"]["requested_render_size"] == 64
+    assert results["presentation"]["effective_render_size"] == 64
+    assert "third comparison column may appear blurred" in capsys.readouterr().err
     diagnostic = results["classes"][0]["camera"][
         "diagnostic_band_limited_score"
     ]
@@ -200,6 +209,22 @@ def test_cli_accepts_surface_rendering_overrides():
     assert args.render_background == "light"
     assert args.render_size == 768
     assert args.render_grid_size == 160
+
+
+def test_cli_defaults_to_automatic_render_size_and_100_dpi_comparisons():
+    args = build_parser().parse_args(
+        [
+            "--url", "http://localhost:39000",
+            "--project", "P1",
+            "--workspace", "W9",
+            "--select-job", "J1025",
+            "--refinement-job", "J1083",
+        ]
+    )
+
+    assert args.render_size is None
+    assert args.comparison_dpi == 100
+    assert args.preview_page_size == 10
 
 
 @pytest.mark.parametrize("value", ["0", "3,3", "class3"])

@@ -97,9 +97,26 @@ Camera matching still uses the unsharpened `map`. Rendering options are:
 ```text
 --surface-level FLOAT          Raw contour value; default is mean + 1.5 sigma
 --render-background dark|light
---render-size INTEGER          Camera View Render PNG size; default: 1024
+--render-size INTEGER          Camera View Render PNG size; default: automatic
 --render-grid-size INTEGER     Maximum surface grid; default: 192
+--comparison-dpi INTEGER       All three-column Class Results; default: 100
+--preview-page-size INTEGER    Classes per CryoSPARC preview page; default: 10
 ```
+
+When `--render-size` is omitted, its effective value is
+`max(1024, 3 * comparison_dpi)`. An explicit smaller value is respected with a
+warning because the third column may be upscaled. DPI has no hard maximum;
+values above 600 report the estimated page dimensions and RGBA memory in both
+the terminal and CryoSPARC Job Log.
+
+For a high-quality export with one class per Event Log page:
+
+```bash
+--comparison-dpi 600 --preview-page-size 1
+```
+
+This changes only Class Result presentation. It does not alter the Class
+Average, Matched Projection calculation, camera search, or matching scores.
 
 The comparison preview also reports a Diagnostic Band-Limited Score. Its
 defaults can be overridden without changing camera selection:
@@ -150,12 +167,13 @@ The created External Job contains:
 - `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
 - `class_orientations.json`: full rotation matrix, quaternion, direction, roll,
   shift, raw match score, Diagnostic Band-Limited Score with reproducibility
-  metadata, confidence, angular spread, and Surface Level;
+  metadata, presentation resolution, warnings, confidence, angular spread, and
+  Surface Level;
 - `class_projections.mrcs`: one matched simulated projection per class;
 - `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
 - `renders/class_NNN_comparison.png`: three-column Class Result;
 - `chimerax/all_classes.cxc` and one ChimeraX script per class;
-- job-log preview pages: ten three-column Class Results per page.
+- job-log preview pages: configurable three-column Class Results per page.
 
 CryoSPARC stores class IDs from zero. The JSON includes both `class_id`
 (zero-based) and `class_number` (one-based, matching the UI). Selected classes

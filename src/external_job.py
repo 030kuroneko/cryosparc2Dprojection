@@ -9,6 +9,7 @@ from cryosparc_2d_projection.class_poses import analyze_class_orientations
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
 from cryosparc_2d_projection.matching_grid import prepare_matching_grid
 from cryosparc_2d_projection.projection import rotate_volume_at_rotation
+from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.scoring import (
     BandLimitedScoreConfig,
     compute_diagnostic_band_limited_score,
@@ -52,6 +53,8 @@ def run_external_orientation_job(
     interactive_class_numbers=(),
     render_options=None,
     diagnostic_score_config=None,
+    comparison_options=None,
+    warning_callback=None,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
     symmetry = SupportedSymmetry.parse(symmetry).value
@@ -59,6 +62,7 @@ def run_external_orientation_job(
     diagnostic_score_config = (
         diagnostic_score_config or BandLimitedScoreConfig()
     )
+    comparison_options = comparison_options or ComparisonRenderOptions()
     rendering_slot = (
         "map_sharp" if render_options.map_name == "sharpened" else "map"
     )
@@ -128,6 +132,14 @@ def run_external_orientation_job(
             job.load_input("refinement_particles"),
             symmetry=symmetry,
         )
+        resolved_presentation = comparison_options.resolve(
+            class_count=len(orientations),
+            requested_render_size=render_options.image_size,
+        )
+        for warning in resolved_presentation.warnings:
+            job.log(warning)
+            if warning_callback is not None:
+                warning_callback(warning)
         artifact = {
             "cryosparc_version": TARGET_CRYOSPARC_VERSION,
             "symmetry": symmetry,
@@ -141,6 +153,25 @@ def run_external_orientation_job(
                 }
                 for class_id, orientation in sorted(orientations.items())
             ],
+            "presentation": {
+                "comparison_dpi": resolved_presentation.comparison_dpi,
+                "preview_page_size": resolved_presentation.preview_page_size,
+                "requested_render_size": resolved_presentation.requested_render_size,
+                "effective_render_size": resolved_presentation.effective_render_size,
+                "render_size_was_automatic": (
+                    resolved_presentation.render_size_was_automatic
+                ),
+                "estimated_page_width_px": (
+                    resolved_presentation.estimated_page_width_px
+                ),
+                "estimated_page_height_px": (
+                    resolved_presentation.estimated_page_height_px
+                ),
+                "estimated_page_rgba_memory_bytes": (
+                    resolved_presentation.estimated_page_rgba_memory_bytes
+                ),
+                "warnings": list(resolved_presentation.warnings),
+            },
         }
         job_directory = Path(_directory_of(job))
         output_path = job_directory / "class_orientations.json"
@@ -212,7 +243,7 @@ def run_external_orientation_job(
             "surface_level_was_automatic": surface.surface_level_was_automatic,
             "warning": surface.warning,
             "background": render_options.background,
-            "image_size": int(render_options.image_size),
+            "image_size": resolved_presentation.effective_render_size,
             "grid_size": int(render_options.grid_size),
         }
         render_paths = {}
@@ -261,7 +292,7 @@ def run_external_orientation_job(
                 surface=surface,
                 rotation_matrix=camera.rotation_matrix,
                 class_number=class_entry["class_number"],
-                image_size=render_options.image_size,
+                image_size=resolved_presentation.effective_render_size,
                 background=render_options.background,
             )
         write_chimerax_bundle(
@@ -304,7 +335,7 @@ def run_external_orientation_job(
             orientations,
             render_paths,
             diagnostic_scores=diagnostic_scores,
-            page_size=10,
+            comparison_options=comparison_options,
         )
         for class_id in sorted(orientations):
             comparison = create_class_preview_figure(
@@ -314,13 +345,14 @@ def run_external_orientation_job(
                 orientations,
                 render_paths,
                 diagnostic_scores=diagnostic_scores,
+                comparison_options=comparison_options,
                 class_ids=[class_id],
             )
             comparison.savefig(
                 job_directory
                 / "renders"
                 / f"class_{class_id + 1:03d}_comparison.png",
-                dpi=150,
+                dpi=comparison_options.dpi,
             )
         preview = preview_pages[0]
         projection_output = job.alloc_output("matched_projections", len(projections))
@@ -334,6 +366,11 @@ def run_external_orientation_job(
                 page,
                 f"Class camera preview {page_number}/{len(preview_pages)}",
                 formats=["png"],
+                savefig_kw={
+                    "dpi": comparison_options.dpi,
+                    "bbox_inches": "tight",
+                    "pad_inches": 0,
+                },
             )
         job.log(
             f"Analyzed {len(orientations)} 2D classes using overlapping particle UIDs."
