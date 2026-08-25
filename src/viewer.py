@@ -115,7 +115,9 @@ def create_class_preview_figure(
         projection_axis.imshow(
             np.flipud(projections[projection_rows[class_id]]), cmap="gray"
         )
-        projection_title = f"Matched | raw={cameras[class_id].match_score:.3f}"
+        projection_title = (
+            f"Matched | search raw={cameras[class_id].match_score:.3f}"
+        )
         if diagnostic_scores is not None:
             diagnostic = diagnostic_scores[class_id]
             if diagnostic.valid:

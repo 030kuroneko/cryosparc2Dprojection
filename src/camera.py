@@ -2,10 +2,12 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 from scipy.ndimage import shift as shift_image
-from scipy.signal import fftconvolve
 from scipy.spatial.transform import Rotation
 
-from cryosparc_2d_projection.projection import project_volume_at_rotation
+from cryosparc_2d_projection.projection import (
+    find_projection_shift,
+    project_volume_at_rotation,
+)
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
 
 
@@ -119,7 +121,7 @@ def solve_class_camera(
         if key in candidates:
             return candidates[key]
         projection = project_volume_at_rotation(volume, rotation_matrix)
-        shift_xy = _translation_to_match(class_average, projection)
+        shift_xy = find_projection_shift(class_average, projection)
         matched_projection = shift_image(
             projection,
             shift=(shift_xy[1], shift_xy[0]),
@@ -183,20 +185,6 @@ def solve_class_camera(
         score_margin=score_margin,
         match_confidence=match_confidence,
         search_evaluation_count=len(ranked_candidates),
-    )
-
-
-def _translation_to_match(target, source):
-    target = np.asarray(target, dtype=float)
-    source = np.asarray(source, dtype=float)
-    correlation = fftconvolve(target, source[::-1, ::-1], mode="full")
-    peak_y, peak_x = np.unravel_index(np.argmax(correlation), correlation.shape)
-    return np.array(
-        [
-            peak_x - (source.shape[1] - 1),
-            peak_y - (source.shape[0] - 1),
-        ],
-        dtype=float,
     )
 
 

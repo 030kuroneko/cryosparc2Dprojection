@@ -13,8 +13,12 @@ The axis from which the map is observed, without an in-plane rotation. A view di
 _Avoid_: Camera orientation
 
 **Matched Projection**:
-A simulated 2D image generated from the refined map at a Class Camera Orientation and aligned to the corresponding 2D class average.
+A simulated 2D image generated from the Matching Map at a Class Camera Orientation, resampled to the native Class Average box and pixel size, and aligned on that native grid for presentation and export. Its displayed resolution is independent of comparison DPI.
 _Avoid_: Camera view, 3D view
+
+**Search Projection**:
+A bounded-resolution projection generated from the Matching Map while selecting and scoring a Class Camera Orientation. It may be downsampled for search performance and is distinct from the native-grid Matched Projection shown in a Class Result.
+_Avoid_: Matched Projection, presentation projection, Camera View Render
 
 **CryoSPARC Display Orientation**:
 The vertical image orientation shown by the CryoSPARC UI for a 2D class average. Static Class Result images use this orientation as their display reference without redefining the underlying Class Camera Orientation.
@@ -71,6 +75,10 @@ _Avoid_: Matching map
 **Surface Level**:
 The raw density contour value whose isosurface defines the visible boundary of a Camera View Render. An automatically selected value may be explicitly overridden without changing the Class Camera Orientation.
 _Avoid_: Match threshold, confidence threshold
+
+**Surface Sampling Grid Size**:
+The maximum side length used when sampling the Rendering Map before extracting its isosurface. It controls presentation geometry detail and rendering cost without changing the Class Camera Orientation, Matched Projection, or matching scores. It never upsamples beyond the original Rendering Map grid.
+_Avoid_: Render image size, comparison DPI, map resolution
 
 **Camera Metadata**:
 The rotation matrix, quaternion, View Direction, in-plane rotation, symmetry information, and coordinate-convention declaration that reproduce a Class Camera Orientation.

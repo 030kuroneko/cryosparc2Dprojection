@@ -1,6 +1,9 @@
 import numpy as np
 
-from cryosparc_2d_projection.matching_grid import prepare_matching_grid
+from cryosparc_2d_projection.matching_grid import (
+    prepare_matching_grid,
+    prepare_native_matching_grid,
+)
 
 
 def test_matching_grid_resamples_class_and_volume_to_one_bounded_physical_grid():
@@ -32,3 +35,53 @@ def test_matching_grid_rejects_invalid_pixel_sizes():
             class_pixel_size=0,
             volume_pixel_size=1,
         )
+
+
+def test_native_matching_grid_uses_class_box_and_pixel_size_without_bound():
+    class_average = np.zeros((10, 10), dtype=np.float32)
+    class_average[4:6, 4:6] = 1.0
+    volume = np.zeros((20, 20, 20), dtype=np.float32)
+    volume[8:12, 8:12, 8:12] = 1.0
+
+    prepared = prepare_native_matching_grid(
+        class_average,
+        volume,
+        class_pixel_size=1.5,
+        volume_pixel_size=3.0,
+    )
+
+    assert prepared.class_average.shape == (10, 10)
+    assert prepared.volume.shape == (10, 10, 10)
+    assert prepared.pixel_size == 1.5
+    assert np.array_equal(prepared.class_average, class_average)
+
+
+def test_native_matching_grid_does_not_apply_the_bounded_search_cap():
+    class_average = np.zeros((130, 130), dtype=np.float32)
+    volume = np.zeros((130, 130, 130), dtype=np.float32)
+
+    prepared = prepare_native_matching_grid(
+        class_average,
+        volume,
+        class_pixel_size=1.0,
+        volume_pixel_size=1.0,
+    )
+
+    assert prepared.class_average.shape == (130, 130)
+    assert prepared.volume.shape == (130, 130, 130)
+
+
+def test_bounded_matching_grid_keeps_the_search_size_cap():
+    class_average = np.zeros((130, 130), dtype=np.float32)
+    volume = np.zeros((130, 130, 130), dtype=np.float32)
+
+    prepared = prepare_matching_grid(
+        class_average,
+        volume,
+        class_pixel_size=1.0,
+        volume_pixel_size=1.0,
+        max_size=128,
+    )
+
+    assert prepared.class_average.shape == (128, 128)
+    assert prepared.volume.shape == (128, 128, 128)

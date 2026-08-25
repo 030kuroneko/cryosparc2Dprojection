@@ -1,9 +1,222 @@
 from dataclasses import dataclass
 from pathlib import Path
+from numbers import Integral
 
 import numpy as np
 from scipy.ndimage import generate_binary_structure, label, zoom
 from skimage.measure import marching_cubes
+
+
+_BYTES_PER_GIB = 1024**3
+# The lower-bound estimate covers the float32 sampled volume, the binary
+# occupancy mask, the int32 connected-component labels, a retained-component
+# mask, and the density copy used when small components are removed. Mesh
+# storage is deliberately excluded because it depends on the contour.
+_SURFACE_MEMORY_BYTES_PER_VOXEL = 4 + 1 + 4 + 1 + 4
+_SURFACE_GRID_TIERS = (512, 384, 256, 192, 128)
+
+
+def recommend_lower_surface_grid_size(failed_grid_size):
+    """Return the next explicit grid to try after a memory failure.
+
+    The standard tiers are used whenever the failed effective grid is above
+    128. Smaller grids have no standard tier, so halve the failed value while
+    respecting the minimum valid grid size of two. A failed grid of two has
+    no valid smaller recommendation and returns ``None``.
+    """
+    if isinstance(failed_grid_size, bool) or not isinstance(
+        failed_grid_size, Integral
+    ):
+        raise ValueError("failed render grid size must be an integer")
+    failed_grid_size = int(failed_grid_size)
+    if failed_grid_size < 2:
+        raise ValueError("failed render grid size must be at least 2")
+    for tier in _SURFACE_GRID_TIERS:
+        if failed_grid_size > tier:
+            return tier
+    if failed_grid_size == 2:
+        return None
+    return max(2, failed_grid_size // 2)
+
+
+class SurfaceRenderMemoryError(MemoryError):
+    """Actionable, non-retrying memory failure for surface presentation."""
+
+    def __init__(self, *, stage, sampling_grid, cause=None):
+        self.stage = str(stage)
+        self.sampling_grid = sampling_grid
+        if sampling_grid is None:
+            self.sampled_shape = None
+            self.effective_grid_size = None
+            self.recommended_grid_size = None
+        else:
+            self.sampled_shape = tuple(sampling_grid.sampled_shape)
+            self.effective_grid_size = int(sampling_grid.effective_grid_size)
+            self.recommended_grid_size = recommend_lower_surface_grid_size(
+                self.effective_grid_size
+            )
+
+        if self.sampled_shape is None:
+            shape_text = "unavailable"
+        else:
+            shape_text = " x ".join(str(size) for size in self.sampled_shape)
+        if self.recommended_grid_size is None:
+            recommendation = (
+                "No smaller valid grid exists; the minimum render grid is 2."
+            )
+        else:
+            recommendation = (
+                "Retry explicitly with "
+                f"--render-grid-size {self.recommended_grid_size} or smaller."
+            )
+        message = (
+            f"Surface {self.stage} ran out of memory at effective sampled shape "
+            f"{shape_text}. {recommendation} The operation did not retry or "
+            "lower the grid automatically."
+        )
+        super().__init__(message)
+        if cause is not None:
+            self.__cause__ = cause
+
+
+@dataclass(frozen=True)
+class ResolvedSurfaceSamplingGrid:
+    """Resolved sampling policy for extracting a rendering surface.
+
+    ``requested_grid_size`` is the user's maximum side length, or ``None``
+    when native-grid automatic mode was requested. ``sampled_shape`` is the
+    actual three-dimensional array shape passed to surface extraction.
+    """
+
+    original_shape: tuple[int, int, int]
+    requested_grid_size: int | None
+    effective_grid_size: int
+    sampled_shape: tuple[int, int, int]
+    grid_size_was_automatic: bool
+    was_downsampled: bool
+    estimated_memory_bytes: int
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def mode(self):
+        return "automatic" if self.grid_size_was_automatic else "manual"
+
+    @property
+    def estimated_memory_gib(self):
+        return self.estimated_memory_bytes / _BYTES_PER_GIB
+
+    def as_dict(self):
+        """Return JSON-compatible metadata for Job Log/result artifacts."""
+        return {
+            "original_shape": list(self.original_shape),
+            "requested_grid_size": self.requested_grid_size,
+            "effective_grid_size": self.effective_grid_size,
+            "sampled_shape": list(self.sampled_shape),
+            "grid_size_was_automatic": self.grid_size_was_automatic,
+            "mode": self.mode,
+            "was_downsampled": self.was_downsampled,
+            "estimated_memory_bytes": self.estimated_memory_bytes,
+            "estimated_memory_gib": self.estimated_memory_gib,
+            "memory_estimate_includes": [
+                "sampled float32 volume",
+                "binary occupancy mask",
+                "connected-component labels",
+                "retained-component mask",
+                "density cleanup copy",
+            ],
+            "memory_estimate_excludes": [
+                "marching-cubes mesh",
+                "plotting allocations",
+            ],
+            "warnings": list(self.warnings),
+        }
+
+
+def resolve_surface_sampling_grid(
+    volume_shape,
+    requested_grid_size=None,
+):
+    """Resolve native or manually bounded sampling for a 3D rendering map.
+
+    A missing request means use the complete native map grid. A manual value
+    is a maximum side length only: values larger than the map never upsample,
+    while smaller values downsample every axis by one common factor so the
+    map's aspect ratio is preserved.
+    """
+    original_shape = _validate_volume_shape(volume_shape)
+    if requested_grid_size is not None:
+        if isinstance(requested_grid_size, bool) or not isinstance(
+            requested_grid_size, Integral
+        ):
+            raise ValueError("render grid size must be an integer at least 2")
+        requested_grid_size = int(requested_grid_size)
+        if requested_grid_size < 2:
+            raise ValueError("render grid size must be at least 2")
+
+    original_max = max(original_shape)
+    if requested_grid_size is None:
+        sampled_shape = original_shape
+    else:
+        scale = min(1.0, requested_grid_size / original_max)
+        sampled_shape = tuple(
+            max(2, int(np.rint(dimension * scale)))
+            for dimension in original_shape
+        )
+        # A dimension of two must remain two after integer rounding, while no
+        # axis can ever exceed its native size.
+        sampled_shape = tuple(
+            min(native, sampled)
+            for native, sampled in zip(original_shape, sampled_shape)
+        )
+
+    effective_grid_size = max(sampled_shape)
+    was_downsampled = sampled_shape != original_shape
+    estimated_memory_bytes = _estimate_surface_memory_bytes(sampled_shape)
+    warnings = ()
+    if estimated_memory_bytes > _BYTES_PER_GIB:
+        shape_text = " x ".join(str(size) for size in sampled_shape)
+        warnings = (
+            "Surface Sampling Grid "
+            f"{shape_text} estimates at least "
+            f"{estimated_memory_bytes / _BYTES_PER_GIB:.1f} GiB of working "
+            "memory (lower bound), exceeding the 1 GiB warning threshold; "
+            "rendering may be memory-intensive.",
+        )
+    return ResolvedSurfaceSamplingGrid(
+        original_shape=original_shape,
+        requested_grid_size=requested_grid_size,
+        effective_grid_size=effective_grid_size,
+        sampled_shape=sampled_shape,
+        grid_size_was_automatic=requested_grid_size is None,
+        was_downsampled=was_downsampled,
+        estimated_memory_bytes=estimated_memory_bytes,
+        warnings=warnings,
+    )
+
+
+def _validate_volume_shape(volume_shape):
+    try:
+        dimensions = tuple(volume_shape)
+    except (TypeError, ValueError) as error:
+        raise ValueError("rendering map shape must contain three dimensions") from error
+    if (
+        len(dimensions) != 3
+        or any(
+            isinstance(dimension, bool)
+            or not isinstance(dimension, Integral)
+            or dimension < 2
+            for dimension in dimensions
+        )
+    ):
+        raise ValueError(
+            "rendering map shape must contain three dimensions of at least 2"
+        )
+    return tuple(int(dimension) for dimension in dimensions)
+
+
+def _estimate_surface_memory_bytes(sampled_shape):
+    voxel_count = int(np.prod(sampled_shape, dtype=np.int64))
+    return voxel_count * _SURFACE_MEMORY_BYTES_PER_VOXEL
 
 
 @dataclass(frozen=True)
@@ -14,6 +227,7 @@ class SurfaceModel:
     surface_level: float
     surface_level_was_automatic: bool = False
     warning: str | None = None
+    sampling_grid: ResolvedSurfaceSamplingGrid | None = None
 
 
 @dataclass(frozen=True)
@@ -24,7 +238,7 @@ class ClassRenderOptions:
     map_name: str = "map"
     background: str = "dark"
     image_size: int | None = None
-    grid_size: int = 192
+    grid_size: int | None = None
 
     def __post_init__(self):
         if self.map_name not in {"map", "sharpened"}:
@@ -33,26 +247,54 @@ class ClassRenderOptions:
             raise ValueError("render background must be 'dark' or 'light'")
         if self.image_size is not None and self.image_size < 64:
             raise ValueError("render image size must be at least 64 pixels")
-        if not 2 <= self.grid_size <= 192:
-            raise ValueError("render grid size must be between 2 and 192")
+        if self.grid_size is not None and (
+            type(self.grid_size) is not int or self.grid_size < 2
+        ):
+            raise ValueError("render grid size must be an integer at least 2")
 
 
-def build_surface_model(volume, *, surface_level, max_size=192):
+def build_surface_model(
+    volume,
+    *,
+    surface_level,
+    max_size=None,
+    sampling_grid=None,
+):
     """Extract a centered triangular isosurface from a 3D density map."""
     volume = np.asarray(volume, dtype=np.float32)
     if volume.ndim != 3:
         raise ValueError("rendering map must be a 3D array")
-    if max_size < 2:
-        raise ValueError("render grid size must be at least 2")
-    if max_size > 192:
-        raise ValueError("render grid size must not exceed 192")
-
-    scale = min(1.0, float(max_size) / max(volume.shape))
-    sampled = (
-        volume
-        if np.isclose(scale, 1.0)
-        else zoom(volume, scale, order=1, mode="nearest", prefilter=False)
-    )
+    if sampling_grid is None:
+        sampling_grid = resolve_surface_sampling_grid(volume.shape, max_size)
+    else:
+        if max_size is not None:
+            raise ValueError("pass either max_size or sampling_grid, not both")
+        if not isinstance(sampling_grid, ResolvedSurfaceSamplingGrid):
+            raise TypeError("sampling_grid must be a ResolvedSurfaceSamplingGrid")
+        if sampling_grid.original_shape != tuple(volume.shape):
+            raise ValueError(
+                "resolved surface sampling grid does not match rendering map shape"
+            )
+    sampled_shape = sampling_grid.sampled_shape
+    try:
+        sampled = (
+            volume
+            if sampled_shape == volume.shape
+            else zoom(
+                volume,
+                tuple(
+                    sampled / native
+                    for sampled, native in zip(sampled_shape, volume.shape)
+                ),
+                order=1,
+                mode="nearest",
+                prefilter=False,
+            )
+        )
+    except MemoryError as error:
+        raise SurfaceRenderMemoryError(
+            stage="surface extraction", sampling_grid=sampling_grid
+        ) from error
     surface_level_was_automatic = surface_level is None
     warning = None
     if surface_level_was_automatic:
@@ -73,6 +315,10 @@ def build_surface_model(volume, *, surface_level, max_size=192):
             vertices_zyx, faces, normals_zyx = _extract_triangle_mesh(
                 sampled, candidate
             )
+        except MemoryError as error:
+            raise SurfaceRenderMemoryError(
+                stage="surface extraction", sampling_grid=sampling_grid
+            ) from error
         except (RuntimeError, ValueError) as error:
             last_error = error
             if not surface_level_was_automatic:
@@ -103,6 +349,7 @@ def build_surface_model(volume, *, surface_level, max_size=192):
         surface_level=surface_level,
         surface_level_was_automatic=surface_level_was_automatic,
         warning=warning,
+        sampling_grid=sampling_grid,
     )
 
 
@@ -134,15 +381,21 @@ def write_camera_view_render(
 ):
     """Save the exact orthographic Camera View Render for one class."""
     output_directory = Path(output_directory)
-    output_directory.mkdir(parents=True, exist_ok=True)
     camera_view_path = output_directory / f"class_{class_number:03d}_exact.png"
-    _write_surface_image(
-        camera_view_path,
-        surface,
-        np.asarray(rotation_matrix, dtype=float),
-        image_size=image_size,
-        background=background,
-    )
+    try:
+        output_directory.mkdir(parents=True, exist_ok=True)
+        _write_surface_image(
+            camera_view_path,
+            surface,
+            np.asarray(rotation_matrix, dtype=float),
+            image_size=image_size,
+            background=background,
+        )
+    except MemoryError as error:
+        raise SurfaceRenderMemoryError(
+            stage="PNG rendering",
+            sampling_grid=surface.sampling_grid,
+        ) from error
     return camera_view_path
 
 

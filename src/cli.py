@@ -40,18 +40,6 @@ def _integer_at_least(minimum):
     return parse
 
 
-def _integer_between(minimum, maximum):
-    def parse(value):
-        number = int(value)
-        if not minimum <= number <= maximum:
-            raise argparse.ArgumentTypeError(
-                f"value must be between {minimum} and {maximum}"
-            )
-        return number
-
-    return parse
-
-
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Create a CryoSPARC 5.0.6 External Job for 2D class orientations."
@@ -112,9 +100,11 @@ def build_parser():
     )
     parser.add_argument(
         "--render-grid-size",
-        type=_integer_between(2, 192),
-        default=192,
-        help="Maximum 3D grid size used to extract the rendering surface",
+        type=_integer_at_least(2),
+        help=(
+            "Maximum 3D grid size used to extract the rendering surface "
+            "(default: complete native Rendering Map grid)"
+        ),
     )
     parser.add_argument(
         "--comparison-dpi",
@@ -199,5 +189,6 @@ def main(argv=None, *, client_factory=None):
         warning_callback=lambda message: print(
             f"WARNING: {message}", file=sys.stderr
         ),
+        status_callback=print,
     )
     return 0

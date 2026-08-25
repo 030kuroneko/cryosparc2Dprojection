@@ -161,7 +161,8 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path, capsys):
     results = __import__("json").loads(
         (tmp_path / "class_orientations.json").read_text()
     )
-    assert results["rendering"] == {
+    rendering = results["rendering"]
+    assert {
         "map": "map",
         "surface_level": 0.5,
         "surface_level_was_automatic": False,
@@ -169,12 +170,22 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path, capsys):
         "background": "light",
         "image_size": 64,
         "grid_size": 3,
-    }
+    }.items() <= rendering.items()
+    assert rendering["original_shape"] == [3, 3, 3]
+    assert rendering["requested_grid_size"] == 3
+    assert rendering["sampled_shape"] == [3, 3, 3]
+    assert rendering["grid_size_was_automatic"] is False
+    assert rendering["was_downsampled"] is False
+    assert rendering["estimated_memory_bytes"] == 378
     assert results["presentation"]["comparison_dpi"] == 200
     assert results["presentation"]["preview_page_size"] == 1
     assert results["presentation"]["requested_render_size"] == 64
     assert results["presentation"]["effective_render_size"] == 64
-    assert "third comparison column may appear blurred" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "third comparison column may appear blurred" in captured.err
+    assert "Surface Sampling Grid: original=3 x 3 x 3" in captured.out
+    assert "requested=3; effective=3 x 3 x 3" in captured.out
+    assert "mesh and plotting allocations excluded" in captured.out
     diagnostic = results["classes"][0]["camera"][
         "diagnostic_band_limited_score"
     ]
@@ -223,6 +234,7 @@ def test_cli_defaults_to_automatic_render_size_and_100_dpi_comparisons():
     )
 
     assert args.render_size is None
+    assert args.render_grid_size is None
     assert args.comparison_dpi == 100
     assert args.preview_page_size == 10
 
@@ -251,18 +263,19 @@ def test_cli_rejects_rendering_sizes_below_supported_minimum(option, value):
         )
 
 
-def test_cli_rejects_render_grid_larger_than_192_cubed():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            [
-                "--url", "http://localhost:39000",
-                "--project", "P1",
-                "--workspace", "W9",
-                "--select-job", "J1025",
-                "--refinement-job", "J1083",
-                "--render-grid-size", "193",
-            ]
-        )
+def test_cli_accepts_render_grid_larger_than_192_cubed():
+    args = build_parser().parse_args(
+        [
+            "--url", "http://localhost:39000",
+            "--project", "P1",
+            "--workspace", "W9",
+            "--select-job", "J1025",
+            "--refinement-job", "J1083",
+            "--render-grid-size", "512",
+        ]
+    )
+
+    assert args.render_grid_size == 512
 
 
 def test_cli_rejects_removed_oblique_inspection_option():

@@ -1,9 +1,14 @@
 import numpy as np
+import pytest
 from PIL import Image
 
 from cryosparc_2d_projection.surface_render import (
     build_surface_model,
     write_camera_view_render,
+    ClassRenderOptions,
+    resolve_surface_sampling_grid,
+    SurfaceRenderMemoryError,
+    recommend_lower_surface_grid_size,
 )
 
 
@@ -143,3 +148,207 @@ def test_surface_model_removes_density_islands_smaller_than_one_percent_of_main_
     surface = build_surface_model(volume, surface_level=0.5, max_size=32)
 
     assert np.max(np.abs(surface.vertices)) < 8
+
+
+def test_render_options_default_to_native_surface_grid_and_accept_large_manual_values():
+    assert ClassRenderOptions().grid_size is None
+    assert ClassRenderOptions(grid_size=384).grid_size == 384
+
+
+def test_automatic_surface_sampling_grid_uses_native_non_cubic_shape():
+    resolved = resolve_surface_sampling_grid((20, 10, 5))
+
+    assert resolved.original_shape == (20, 10, 5)
+    assert resolved.requested_grid_size is None
+    assert resolved.effective_grid_size == 20
+    assert resolved.sampled_shape == (20, 10, 5)
+    assert resolved.grid_size_was_automatic is True
+    assert resolved.was_downsampled is False
+    assert resolved.warnings == ()
+
+
+def test_manual_surface_sampling_grid_downsamples_each_axis_proportionally():
+    resolved = resolve_surface_sampling_grid((20, 10, 5), requested_grid_size=8)
+
+    assert resolved.original_shape == (20, 10, 5)
+    assert resolved.requested_grid_size == 8
+    assert resolved.effective_grid_size == 8
+    assert resolved.sampled_shape == (8, 4, 2)
+    assert resolved.grid_size_was_automatic is False
+    assert resolved.was_downsampled is True
+
+
+def test_manual_surface_sampling_grid_never_upsamples_the_rendering_map():
+    resolved = resolve_surface_sampling_grid((20, 10, 5), requested_grid_size=100)
+
+    assert resolved.effective_grid_size == 20
+    assert resolved.sampled_shape == (20, 10, 5)
+    assert resolved.was_downsampled is False
+
+
+@pytest.mark.parametrize("requested", [None, 1, 0, -3])
+def test_surface_sampling_grid_rejects_invalid_manual_sizes(requested):
+    if requested is None:
+        pytest.skip("None selects automatic native-grid mode")
+
+    with pytest.raises(ValueError, match="at least 2"):
+        resolve_surface_sampling_grid((12, 12, 12), requested_grid_size=requested)
+
+
+def test_surface_sampling_grid_estimate_is_recorded_and_warns_above_one_gib():
+    resolved = resolve_surface_sampling_grid((512, 512, 512))
+
+    assert resolved.estimated_memory_bytes > 1024**3
+    assert len(resolved.warnings) == 1
+    assert "512 x 512 x 512" in resolved.warnings[0]
+    assert "1 GiB" in resolved.warnings[0]
+
+
+def test_surface_sampling_grid_metadata_is_json_compatible():
+    resolved = resolve_surface_sampling_grid((20, 10, 5), requested_grid_size=8)
+
+    assert resolved.as_dict() == {
+        "original_shape": [20, 10, 5],
+        "requested_grid_size": 8,
+        "effective_grid_size": 8,
+        "sampled_shape": [8, 4, 2],
+        "grid_size_was_automatic": False,
+        "mode": "manual",
+        "was_downsampled": True,
+        "estimated_memory_bytes": 8 * 4 * 2 * 14,
+        "estimated_memory_gib": (8 * 4 * 2 * 14) / (1024**3),
+        "memory_estimate_includes": [
+            "sampled float32 volume",
+            "binary occupancy mask",
+            "connected-component labels",
+            "retained-component mask",
+            "density cleanup copy",
+        ],
+        "memory_estimate_excludes": [
+            "marching-cubes mesh",
+            "plotting allocations",
+        ],
+        "warnings": [],
+    }
+
+
+def test_surface_model_exposes_resolved_surface_sampling_metadata():
+    volume = np.zeros((12, 8, 4), dtype=np.float32)
+    volume[2:10, 2:6, :] = 1.0
+
+    surface = build_surface_model(volume, surface_level=0.5, max_size=6)
+
+    assert surface.sampling_grid.requested_grid_size == 6
+    assert surface.sampling_grid.sampled_shape == (6, 4, 2)
+    assert surface.sampling_grid.was_downsampled is True
+
+
+def test_surface_model_uses_the_pre_resolved_sampling_grid_object():
+    volume = np.zeros((6, 4, 3), dtype=np.float32)
+    volume[1:5, 1:3, :] = 1.0
+    resolved = resolve_surface_sampling_grid((6, 4, 3), requested_grid_size=4)
+
+    surface = build_surface_model(
+        volume,
+        surface_level=0.5,
+        sampling_grid=resolved,
+    )
+
+    assert surface.sampling_grid is resolved
+
+
+@pytest.mark.parametrize(
+    "failed_grid, recommended_grid",
+    [
+        (1024, 512),
+        (512, 384),
+        (384, 256),
+        (256, 192),
+        (192, 128),
+        (128, 64),
+        (64, 32),
+        (2, None),
+    ],
+)
+def test_memory_failure_recommendation_uses_lower_grid_tiers(
+    failed_grid, recommended_grid
+):
+    assert recommend_lower_surface_grid_size(failed_grid) == recommended_grid
+
+
+def test_surface_extraction_memory_error_reports_shape_and_does_not_retry(
+    monkeypatch,
+):
+    import cryosparc_2d_projection.surface_render as rendering
+
+    volume = np.zeros((12, 12, 12), dtype=np.float32)
+    volume[2:10, 2:10, 2:10] = 1.0
+    attempts = []
+
+    def fail_surface_extraction(sampled, level):
+        attempts.append((sampled.shape, level))
+        raise MemoryError("synthetic surface allocation failure")
+
+    monkeypatch.setattr(
+        rendering, "_extract_triangle_mesh", fail_surface_extraction
+    )
+
+    with pytest.raises(SurfaceRenderMemoryError) as raised:
+        rendering.build_surface_model(volume, surface_level=0.5, max_size=8)
+
+    error = raised.value
+    assert attempts == [((8, 8, 8), 0.5)]
+    assert error.stage == "surface extraction"
+    assert error.sampled_shape == (8, 8, 8)
+    assert error.effective_grid_size == 8
+    assert error.recommended_grid_size == 4
+    assert "8 x 8 x 8" in str(error)
+    assert "--render-grid-size 4" in str(error)
+    assert "did not retry" in str(error)
+
+
+def test_png_render_memory_error_reports_shape_and_does_not_retry(
+    tmp_path, monkeypatch
+):
+    import cryosparc_2d_projection.surface_render as rendering
+
+    z, y, x = np.mgrid[-1:1:17j, -1:1:17j, -1:1:17j]
+    volume = (x**2 + y**2 + z**2 < 0.6**2).astype(np.float32)
+    surface = rendering.build_surface_model(volume, surface_level=0.5, max_size=8)
+    attempts = []
+
+    def fail_png_render(*args, **kwargs):
+        attempts.append(True)
+        raise MemoryError("synthetic PNG allocation failure")
+
+    monkeypatch.setattr(rendering, "_write_surface_image", fail_png_render)
+
+    with pytest.raises(SurfaceRenderMemoryError) as raised:
+        rendering.write_camera_view_render(
+            tmp_path,
+            surface=surface,
+            rotation_matrix=np.eye(3),
+            class_number=1,
+            image_size=128,
+        )
+
+    error = raised.value
+    assert attempts == [True]
+    assert error.stage == "PNG rendering"
+    assert error.sampled_shape == (8, 8, 8)
+    assert error.effective_grid_size == 8
+    assert error.recommended_grid_size == 4
+    assert "8 x 8 x 8" in str(error)
+    assert "--render-grid-size 4" in str(error)
+    assert "did not retry" in str(error)
+
+
+def test_validation_errors_are_not_relabelled_as_memory_failures():
+    with pytest.raises(ValueError, match="at least 2") as raised:
+        build_surface_model(
+            np.zeros((8, 8, 8), dtype=np.float32),
+            surface_level=0.5,
+            max_size=1,
+        )
+
+    assert not isinstance(raised.value, SurfaceRenderMemoryError)
