@@ -102,10 +102,6 @@ class ResolvedSurfaceSamplingGrid:
         return "automatic" if self.grid_size_was_automatic else "manual"
 
     @property
-    def warning(self):
-        return self.warnings[0] if self.warnings else None
-
-    @property
     def estimated_memory_gib(self):
         return self.estimated_memory_bytes / _BYTES_PER_GIB
 
@@ -121,6 +117,17 @@ class ResolvedSurfaceSamplingGrid:
             "was_downsampled": self.was_downsampled,
             "estimated_memory_bytes": self.estimated_memory_bytes,
             "estimated_memory_gib": self.estimated_memory_gib,
+            "memory_estimate_includes": [
+                "sampled float32 volume",
+                "binary occupancy mask",
+                "connected-component labels",
+                "retained-component mask",
+                "density cleanup copy",
+            ],
+            "memory_estimate_excludes": [
+                "marching-cubes mesh",
+                "plotting allocations",
+            ],
             "warnings": list(self.warnings),
         }
 
@@ -246,12 +253,28 @@ class ClassRenderOptions:
             raise ValueError("render grid size must be an integer at least 2")
 
 
-def build_surface_model(volume, *, surface_level, max_size=None):
+def build_surface_model(
+    volume,
+    *,
+    surface_level,
+    max_size=None,
+    sampling_grid=None,
+):
     """Extract a centered triangular isosurface from a 3D density map."""
     volume = np.asarray(volume, dtype=np.float32)
     if volume.ndim != 3:
         raise ValueError("rendering map must be a 3D array")
-    sampling_grid = resolve_surface_sampling_grid(volume.shape, max_size)
+    if sampling_grid is None:
+        sampling_grid = resolve_surface_sampling_grid(volume.shape, max_size)
+    else:
+        if max_size is not None:
+            raise ValueError("pass either max_size or sampling_grid, not both")
+        if not isinstance(sampling_grid, ResolvedSurfaceSamplingGrid):
+            raise TypeError("sampling_grid must be a ResolvedSurfaceSamplingGrid")
+        if sampling_grid.original_shape != tuple(volume.shape):
+            raise ValueError(
+                "resolved surface sampling grid does not match rendering map shape"
+            )
     sampled_shape = sampling_grid.sampled_shape
     try:
         sampled = (

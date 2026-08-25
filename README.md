@@ -114,7 +114,9 @@ native grid of the selected Rendering Map. An explicit value of at least 2
 reduces the grid proportionally without upsampling or distorting non-cubic
 maps; it has no fixed software maximum. The terminal, Job Log, and JSON record
 the original and effective shapes, downsampling state, and a lower-bound memory
-estimate. Estimates above 1 GiB warn but continue. A memory failure never
+estimate before extraction. The estimate covers known dense volume/mask/label
+arrays but excludes topology-dependent marching-cubes mesh and plotting
+allocations. Estimates above 1 GiB warn but continue. A memory failure never
 silently lowers quality and reports an explicit smaller retry value.
 
 For a high-quality export with one class per Event Log page:

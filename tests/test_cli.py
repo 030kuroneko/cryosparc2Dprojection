@@ -183,7 +183,9 @@ def test_cli_creates_job_from_cryosparc_job_output_ids(tmp_path, capsys):
     assert results["presentation"]["effective_render_size"] == 64
     captured = capsys.readouterr()
     assert "third comparison column may appear blurred" in captured.err
-    assert "Surface Sampling Grid: 3 x 3 x 3" in captured.out
+    assert "Surface Sampling Grid: original=3 x 3 x 3" in captured.out
+    assert "requested=3; effective=3 x 3 x 3" in captured.out
+    assert "mesh and plotting allocations excluded" in captured.out
     diagnostic = results["classes"][0]["camera"][
         "diagnostic_band_limited_score"
     ]

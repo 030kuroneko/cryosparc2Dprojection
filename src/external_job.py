@@ -21,6 +21,7 @@ from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     SurfaceRenderMemoryError,
     build_surface_model,
+    resolve_surface_sampling_grid,
     write_camera_view_render,
 )
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
@@ -32,6 +33,10 @@ from cryosparc_2d_projection.viewer import (
 
 
 TARGET_CRYOSPARC_VERSION = "5.0.6"
+
+
+class NativeReprojectionError(RuntimeError):
+    """A native Matched Projection could not be generated for a class."""
 
 
 @dataclass(frozen=True)
@@ -154,7 +159,7 @@ def run_external_orientation_job(
         class_averages = _load_class_averages(
             project, job.load_input("select_2d_templates")
         )
-        _validate_native_class_shapes(class_averages, orientations)
+        _validate_native_class_grids(class_averages, orientations)
         artifact = {
             "cryosparc_version": TARGET_CRYOSPARC_VERSION,
             "symmetry": symmetry,
@@ -234,13 +239,24 @@ def run_external_orientation_job(
                 alignment_2d_poses=alignment_2d_poses,
                 symmetry=symmetry,
             )
-            native_projection_results[class_id] = project_native_matched_projection(
-                template.image,
-                volume_data,
-                camera_results[class_id].rotation_matrix,
-                class_pixel_size=template.pixel_size,
-                volume_pixel_size=pixel_size,
-            )
+            try:
+                native_projection_results[class_id] = (
+                    project_native_matched_projection(
+                        template.image,
+                        volume_data,
+                        camera_results[class_id].rotation_matrix,
+                        class_pixel_size=template.pixel_size,
+                        volume_pixel_size=pixel_size,
+                    )
+                )
+            except (MemoryError, RuntimeError, ValueError) as error:
+                failure = NativeReprojectionError(
+                    f"Native Matched Projection failed for Class {class_id + 1}; "
+                    "the bounded Search Projection was not substituted. "
+                    f"Cause: {error}"
+                )
+                job.log(str(failure))
+                raise failure from error
             diagnostic_scores[class_id] = (
                 compute_diagnostic_band_limited_score(
                     template.image,
@@ -249,23 +265,30 @@ def run_external_orientation_job(
                     settings=diagnostic_score_config,
                 )
             )
-        try:
-            surface = build_surface_model(
-                rendering_volume_data,
-                surface_level=render_options.surface_level,
-                max_size=render_options.grid_size,
-            )
-        except SurfaceRenderMemoryError as error:
-            job.log(str(error))
-            raise
-        sampling_grid = surface.sampling_grid
+        sampling_grid = resolve_surface_sampling_grid(
+            rendering_volume_data.shape,
+            render_options.grid_size,
+        )
+        original_shape = " x ".join(
+            str(size) for size in sampling_grid.original_shape
+        )
         sampling_shape = " x ".join(
             str(size) for size in sampling_grid.sampled_shape
         )
+        requested_grid = (
+            "native"
+            if sampling_grid.requested_grid_size is None
+            else str(sampling_grid.requested_grid_size)
+        )
         sampling_message = (
-            f"Surface Sampling Grid: {sampling_shape} "
-            f"({sampling_grid.mode}, estimated minimum working memory "
-            f"{sampling_grid.estimated_memory_gib:.3f} GiB)."
+            f"Surface Sampling Grid: original={original_shape}; "
+            f"requested={requested_grid}; effective={sampling_shape}; "
+            f"mode={sampling_grid.mode}; downsampled="
+            f"{'yes' if sampling_grid.was_downsampled else 'no'}; "
+            "estimated minimum working memory="
+            f"{sampling_grid.estimated_memory_gib:.3f} GiB "
+            "(mesh and plotting allocations excluded); "
+            f"Camera View Render={resolved_presentation.effective_render_size} px."
         )
         job.log(sampling_message)
         if status_callback is not None:
@@ -274,6 +297,15 @@ def run_external_orientation_job(
             job.log(warning)
             if warning_callback is not None:
                 warning_callback(warning)
+        try:
+            surface = build_surface_model(
+                rendering_volume_data,
+                surface_level=render_options.surface_level,
+                sampling_grid=sampling_grid,
+            )
+        except SurfaceRenderMemoryError as error:
+            job.log(str(error))
+            raise
         job.log(f"Surface Level: {surface.surface_level:.6g}")
         if surface.warning:
             job.log(surface.warning)
@@ -317,6 +349,16 @@ def run_external_orientation_job(
                 "second_best_score": camera.second_best_score,
                 "score_margin": camera.score_margin,
                 "match_confidence": camera.match_confidence,
+                "search_score_provenance": {
+                    "source": "bounded_search_projection",
+                    "role": "camera_selection_and_ranking",
+                    "reported_fields": [
+                        "match_score",
+                        "second_best_score",
+                        "score_margin",
+                        "match_confidence",
+                    ],
+                },
                 "diagnostic_band_limited_score": {
                     "score": diagnostic.score,
                     "valid": diagnostic.valid,
@@ -482,18 +524,36 @@ def _load_class_averages(project, templates):
     return class_averages
 
 
-def _validate_native_class_shapes(class_averages, orientations):
+def _validate_native_class_grids(class_averages, orientations):
     shapes = {
         class_id: tuple(class_averages[class_id].image.shape)
         for class_id in sorted(orientations)
     }
-    if len(set(shapes.values())) <= 1:
+    if len(set(shapes.values())) > 1:
+        details = "; ".join(
+            f"Class {class_id + 1} {shape}" for class_id, shape in shapes.items()
+        )
+        raise ValueError(
+            "Native Class Average boxes must have one common shape: " + details
+        )
+
+    pixel_sizes = {
+        class_id: class_averages[class_id].pixel_size
+        for class_id in sorted(orientations)
+    }
+    reference_pixel_size = next(iter(pixel_sizes.values()))
+    if all(
+        np.isclose(pixel_size, reference_pixel_size)
+        for pixel_size in pixel_sizes.values()
+    ):
         return
     details = "; ".join(
-        f"Class {class_id + 1} {shape}" for class_id, shape in shapes.items()
+        f"Class {class_id + 1} {pixel_size:g} A/pixel"
+        for class_id, pixel_size in pixel_sizes.items()
     )
     raise ValueError(
-        "Native Class Average boxes must have one common shape: " + details
+        "Native Class Averages must have one common pixel size for MRCS output: "
+        + details
     )
 
 

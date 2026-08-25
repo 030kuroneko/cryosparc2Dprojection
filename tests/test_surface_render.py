@@ -217,6 +217,17 @@ def test_surface_sampling_grid_metadata_is_json_compatible():
         "was_downsampled": True,
         "estimated_memory_bytes": 8 * 4 * 2 * 14,
         "estimated_memory_gib": (8 * 4 * 2 * 14) / (1024**3),
+        "memory_estimate_includes": [
+            "sampled float32 volume",
+            "binary occupancy mask",
+            "connected-component labels",
+            "retained-component mask",
+            "density cleanup copy",
+        ],
+        "memory_estimate_excludes": [
+            "marching-cubes mesh",
+            "plotting allocations",
+        ],
         "warnings": [],
     }
 
@@ -230,6 +241,20 @@ def test_surface_model_exposes_resolved_surface_sampling_metadata():
     assert surface.sampling_grid.requested_grid_size == 6
     assert surface.sampling_grid.sampled_shape == (6, 4, 2)
     assert surface.sampling_grid.was_downsampled is True
+
+
+def test_surface_model_uses_the_pre_resolved_sampling_grid_object():
+    volume = np.zeros((6, 4, 3), dtype=np.float32)
+    volume[1:5, 1:3, :] = 1.0
+    resolved = resolve_surface_sampling_grid((6, 4, 3), requested_grid_size=4)
+
+    surface = build_surface_model(
+        volume,
+        surface_level=0.5,
+        sampling_grid=resolved,
+    )
+
+    assert surface.sampling_grid is resolved
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ from cryosparc import mrc
 import pytest
 
 from cryosparc_2d_projection.external_job import (
+    NativeReprojectionError,
     SourceOutput,
     _load_class_averages,
     run_external_orientation_job,
@@ -505,6 +506,16 @@ def test_external_job_separates_native_matched_and_bounded_search_projections(
     assert diagnostic["matching_pixel_size_A"] == pytest.approx(1.5)
     assert diagnostic["score_role"] == "diagnostic_only"
     assert diagnostic["candidate_set_scope"] == "raw_search_winner"
+    assert camera["search_score_provenance"] == {
+        "source": "bounded_search_projection",
+        "role": "camera_selection_and_ranking",
+        "reported_fields": [
+            "match_score",
+            "second_best_score",
+            "score_margin",
+            "match_confidence",
+        ],
+    }
     assert results["presentation"]["comparison_dpi"] == 600
 
     with Image.open(tmp_path / "renders" / "class_001_comparison.png") as comparison:
@@ -549,7 +560,53 @@ def test_external_job_records_automatic_native_rendering_grid_for_selected_map(
     assert rendering["grid_size_was_automatic"] is True
     assert rendering["was_downsampled"] is False
     assert rendering["estimated_memory_bytes"] > 0
-    assert any("6 x 4 x 3" in message for message in job.logs)
+    assert rendering["memory_estimate_excludes"] == [
+        "marching-cubes mesh",
+        "plotting allocations",
+    ]
+    sampling_log = next(
+        message for message in job.logs if message.startswith("Surface Sampling Grid:")
+    )
+    assert "original=6 x 4 x 3" in sampling_log
+    assert "requested=native" in sampling_log
+    assert "effective=6 x 4 x 3" in sampling_log
+    assert "downsampled=no" in sampling_log
+    assert "mesh and plotting allocations excluded" in sampling_log
+
+
+def test_external_job_reports_surface_sampling_before_extraction(tmp_path, monkeypatch):
+    project, job = _native_grid_external_job(
+        tmp_path,
+        class_size=9,
+        rendering_shape=(6, 4, 3),
+    )
+    from cryosparc_2d_projection import external_job
+
+    real_build_surface_model = external_job.build_surface_model
+
+    def assert_sampling_was_reported(*args, **kwargs):
+        assert any(
+            message.startswith("Surface Sampling Grid:") for message in job.logs
+        )
+        return real_build_surface_model(*args, **kwargs)
+
+    monkeypatch.setattr(external_job, "build_surface_model", assert_sampling_was_reported)
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            map_name="sharpened",
+            image_size=64,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
+    )
 
 
 def test_external_job_records_manual_rendering_grid_override(tmp_path):
@@ -659,6 +716,84 @@ def test_external_job_rejects_inconsistent_native_class_boxes_before_search(
     assert job.saved_outputs == {}
     assert not (tmp_path / "class_orientations.json").exists()
     assert not (tmp_path / "class_projections.mrcs").exists()
+
+
+def test_external_job_rejects_inconsistent_native_class_pixel_sizes_before_search(
+    tmp_path,
+):
+    project, job = _inconsistent_native_box_external_job(tmp_path)
+    same_shape_stack = np.zeros((2, 9, 9), dtype=np.float32)
+    same_shape_stack[1, 2:7, 2:7] = 1.0
+    mrc.write(tmp_path / "templates_class_002.mrcs", same_shape_stack, 2.0)
+    job.datasets["select_2d_templates"]["blob/psize_A"][1] = 2.0
+
+    with pytest.raises(ValueError) as error:
+        run_external_orientation_job(
+            project,
+            workspace_uid="W1",
+            select_2d_source=SourceOutput("J10", "particles_selected"),
+            select_templates_source=SourceOutput("J10", "templates_selected"),
+            refinement_source=SourceOutput("J20", "particles"),
+            volume_source=SourceOutput("J20", "volume"),
+            symmetry="C1",
+            render_options=ClassRenderOptions(
+                map_name="sharpened",
+                image_size=64,
+                surface_level=0.5,
+            ),
+            comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
+        )
+
+    message = str(error.value)
+    assert "Class 1" in message
+    assert "1.5" in message
+    assert "Class 2" in message
+    assert "2" in message
+    assert job.saved_outputs == {}
+    assert not (tmp_path / "class_orientations.json").exists()
+
+
+def test_external_job_fails_clearly_when_native_reprojection_fails(
+    tmp_path, monkeypatch
+):
+    project, job = _native_grid_external_job(
+        tmp_path,
+        class_size=9,
+        rendering_shape=(6, 4, 3),
+    )
+
+    def fail_native_reprojection(*args, **kwargs):
+        raise MemoryError("injected native reprojection failure")
+
+    monkeypatch.setattr(
+        "cryosparc_2d_projection.external_job.project_native_matched_projection",
+        fail_native_reprojection,
+    )
+
+    with pytest.raises(NativeReprojectionError) as raised:
+        run_external_orientation_job(
+            project,
+            workspace_uid="W1",
+            select_2d_source=SourceOutput("J10", "particles_selected"),
+            select_templates_source=SourceOutput("J10", "templates_selected"),
+            refinement_source=SourceOutput("J20", "particles"),
+            volume_source=SourceOutput("J20", "volume"),
+            symmetry="C1",
+            render_options=ClassRenderOptions(
+                map_name="sharpened",
+                image_size=64,
+                surface_level=0.5,
+            ),
+            comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
+        )
+
+    assert "Class 1" in str(raised.value)
+    assert "bounded Search Projection was not substituted" in str(raised.value)
+    assert str(raised.value) in job.logs
+    assert "matched_projections" not in job.saved_outputs
+    assert "search_projections" not in job.saved_outputs
+    assert not (tmp_path / "class_projections.mrcs").exists()
+    assert not (tmp_path / "search_projections.mrcs").exists()
 
 
 def test_class_render_options_validate_the_whole_rendering_policy():
