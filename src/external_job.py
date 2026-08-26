@@ -28,6 +28,7 @@ from cryosparc_2d_projection.symmetry import SupportedSymmetry
 from cryosparc_2d_projection.viewer import (
     create_class_preview_figure,
     create_class_preview_pages,
+    write_matched_projection_thumbnail,
     write_chimerax_bundle,
 )
 
@@ -467,13 +468,23 @@ def run_external_orientation_job(
                 / f"class_{class_id + 1:03d}_comparison.png",
                 dpi=comparison_options.dpi,
             )
-        preview = preview_pages[0]
         projection_output = job.alloc_output("matched_projections", len(projections))
         projection_output["blob/path"][:] = f">{job.uid}/class_projections.mrcs"
         projection_output["blob/idx"][:] = np.arange(len(projections))
         projection_output["blob/shape"][:] = projections.shape[1:]
         projection_output["blob/psize_A"][:] = projection_pixel_size
-        job.save_output("matched_projections", projection_output, image=preview)
+        job.save_output("matched_projections", projection_output)
+        thumbnail_path = write_matched_projection_thumbnail(
+            job_directory / "renders" / "matched_projections_thumbnail.png",
+            projections[0],
+        )
+        try:
+            job.set_output_image("matched_projections", thumbnail_path)
+        except Exception as error:
+            job.log(
+                "WARNING: Could not attach matched_projections thumbnail; "
+                f"scientific output remains available. {error}"
+            )
         search_projection_output = job.alloc_output(
             "search_projections", len(search_projections)
         )

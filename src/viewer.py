@@ -5,6 +5,27 @@ import numpy as np
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 
 
+def write_matched_projection_thumbnail(path, projection):
+    """Write one native-grid Matched Projection as a UI-only grayscale PNG."""
+    from PIL import Image
+
+    displayed = np.flipud(np.asarray(projection, dtype=np.float32))
+    finite = np.isfinite(displayed)
+    if not finite.any():
+        pixels = np.zeros(displayed.shape, dtype=np.uint8)
+    else:
+        low = float(np.min(displayed[finite]))
+        high = float(np.max(displayed[finite]))
+        if high == low:
+            pixels = np.zeros(displayed.shape, dtype=np.uint8)
+        else:
+            scaled = (np.nan_to_num(displayed, nan=low) - low) / (high - low)
+            pixels = np.round(np.clip(scaled, 0.0, 1.0) * 255).astype(np.uint8)
+    path = Path(path)
+    Image.fromarray(pixels, mode="L").save(path)
+    return path
+
+
 def write_chimerax_bundle(output_directory, *, map_path, cameras):
     """Write per-class and master ChimeraX camera scripts."""
     output_directory = Path(output_directory)

@@ -22,7 +22,7 @@ from PIL import Image
 
 
 class FakeExternalJob:
-    def __init__(self, directory, datasets):
+    def __init__(self, directory, datasets, *, output_image_error=None):
         self.uid = "J99"
         self.directory = directory
         self.datasets = datasets
@@ -31,6 +31,8 @@ class FakeExternalJob:
         self.logs = []
         self.plots = []
         self.saved_outputs = {}
+        self.output_images = {}
+        self.output_image_error = output_image_error
         self.outputs = []
 
     def add_input(self, **spec):
@@ -62,6 +64,11 @@ class FakeExternalJob:
 
     def save_output(self, name, dataset, image=None):
         self.saved_outputs[name] = (dataset, image)
+
+    def set_output_image(self, name, image):
+        if self.output_image_error is not None:
+            raise self.output_image_error
+        self.output_images[name] = image
 
     def connect(self, target_input, source_job_uid, source_output):
         self.connections.append((target_input, source_job_uid, source_output))
@@ -437,7 +444,16 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert projection_output["blob/idx"].tolist() == [0]
     assert projection_output["blob/shape"].tolist() == [[7, 7]]
     assert np.allclose(projection_output["blob/psize_A"], [1.5])
-    assert thumbnail is preview
+    assert thumbnail is None
+    thumbnail_path = job.output_images["matched_projections"]
+    assert thumbnail_path == tmp_path / "renders" / "matched_projections_thumbnail.png"
+    with Image.open(thumbnail_path) as output_thumbnail:
+        assert output_thumbnail.size == (7, 7)
+        assert output_thumbnail.mode == "L"
+        thumbnail_pixels = np.asarray(output_thumbnail)
+        assert thumbnail_pixels[3, 2] == 64
+        assert thumbnail_pixels[5, 1] == 128
+        assert thumbnail_pixels[1, 5] == 255
     rendering_output, rendering_thumbnail = job.saved_outputs["rendering_map"]
     assert rendering_output["map/path"].tolist() == ["volume_sharp.mrc"]
     assert rendering_thumbnail is None
@@ -523,6 +539,41 @@ def test_external_job_separates_native_matched_and_bounded_search_projections(
 
     preview = job.plots[0][0]
     assert preview.axes[1].get_title().startswith("Matched | search raw=")
+
+
+def test_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
+    tmp_path,
+):
+    project, job = _native_grid_external_job(
+        tmp_path,
+        class_size=9,
+        rendering_shape=(6, 4, 3),
+    )
+    job.output_image_error = RuntimeError("thumbnail service unavailable")
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            map_name="sharpened",
+            image_size=64,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
+    )
+
+    assert "matched_projections" in job.saved_outputs
+    assert job.output_images == {}
+    assert any(
+        "Could not attach matched_projections thumbnail" in message
+        and "thumbnail service unavailable" in message
+        for message in job.logs
+    )
 
 
 def test_external_job_records_automatic_native_rendering_grid_for_selected_map(

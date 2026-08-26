@@ -24,6 +24,10 @@ _Avoid_: Matched Projection, presentation projection, Camera View Render
 The vertical image orientation shown by the CryoSPARC UI for a 2D class average. Static Class Result images use this orientation as their display reference without redefining the underlying Class Camera Orientation.
 _Avoid_: Raw array orientation, arbitrary display flip
 
+**CryoSPARC Output Thumbnail**:
+A presentation-only image attached to a registered CryoSPARC output card. The Matched Projection output uses the lowest Class Number at its native pixel dimensions, in CryoSPARC Display Orientation, without labels or axes. Thumbnail generation and upload do not alter scientific output data, and an upload failure is reported without failing the job.
+_Avoid_: Matched Projection data, Event Log preview
+
 **Camera View Render**:
 An orthographic 3D isosurface rendering of the Rendering Map observed at the exact Class Camera Orientation.
 _Avoid_: Projection, voxel scatter, 3D projection
