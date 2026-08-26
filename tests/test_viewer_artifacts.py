@@ -109,3 +109,5 @@ def test_class_result_displays_2d_images_in_cryosparc_display_orientation(tmp_pa
     assert np.array_equal(displayed_projection, [[10, 11, 12], [7, 8, 9]])
     assert not np.array_equal(displayed_class, np.fliplr(class_average))
     assert not np.array_equal(displayed_projection, np.fliplr(matched_projection))
+    assert page.axes[0].images[0].get_interpolation() == "hanning"
+    assert page.axes[1].images[0].get_interpolation() == "hanning"
