@@ -21,7 +21,7 @@ uv run cryosparc-axis-search \
 ```
 
 Use `--axis-family 2fold` for one family or
-`--axis-families 2fold,5fold` for a subset. Repeat `--axis-roll`, for example
+`--axis-family 2fold,5fold` for a subset. Repeat `--axis-roll`, for example
 `--axis-roll 2fold=10 --axis-roll 3fold=-5`, for final display-only rotation.
 The command also accepts the documented score, shift, proximity, comparison,
 surface, and rendering overrides shown by `--help`.

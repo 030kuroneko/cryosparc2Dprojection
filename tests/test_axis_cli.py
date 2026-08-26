@@ -2,6 +2,7 @@ from contextlib import nullcontext
 import json
 
 import numpy as np
+import pytest
 from cryosparc import mrc
 
 from cryosparc_2d_projection.axis_cli import build_parser, main
@@ -172,6 +173,7 @@ def test_axis_cli_exposes_approved_one_family_defaults():
 
     assert args.low_resolution_A == 80.0
     assert args.high_resolution_A == 15.0
+    assert args.axis_family == ("3fold",)
     assert args.roll_coarse_step == 5.0
     assert args.roll_refine_step == 0.5
     assert args.shift_bound_fraction == 0.10
@@ -188,11 +190,10 @@ def test_axis_cli_searches_all_families_by_default_and_accepts_subset():
     ]
 
     defaults = build_parser().parse_args(common)
-    subset = build_parser().parse_args([*common, "--axis-families", "2fold,5fold"])
+    subset = build_parser().parse_args([*common, "--axis-family", "2fold,5fold"])
 
     assert defaults.axis_family is None
-    assert defaults.axis_families is None
-    assert subset.axis_families == "2fold,5fold"
+    assert subset.axis_family == ("2fold", "5fold")
     assert subset.mirror_warning_margin == 0.05
     assert subset.axis_cone_degrees == 15.0
     assert subset.tilt_coarse_step == 3.0
@@ -225,6 +226,42 @@ def test_axis_cli_accepts_repeatable_display_only_axis_roll_and_render_controls(
     assert args.render_size == 256
     assert args.render_grid_size == 128
     assert args.surface_level == 0.2
+
+
+def test_axis_cli_rejects_removed_axis_families_option():
+    common = [
+        "--url", "http://localhost:39000",
+        "--project", "P1",
+        "--workspace", "W1",
+        "--select-job", "J10",
+        "--volume-job", "J20",
+    ]
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*common, "--axis-families", "2fold,5fold"])
+
+
+def test_axis_cli_runs_with_comma_separated_axis_family_selection(tmp_path):
+    job = AxisJob(tmp_path)
+    client = AxisClient(AxisProject(job))
+
+    exit_code = main(
+        [
+            "--url", "https://cryosparc.example.test",
+            "--project", "P1",
+            "--workspace", "W1",
+            "--select-job", "J10",
+            "--volume-job", "J20",
+            "--axis-family", "2fold,5fold",
+            "--top-n", "1",
+            "--render-size", "64",
+        ],
+        client_factory=lambda url: client,
+    )
+
+    assert exit_code == 0
+    metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
+    assert metadata["families"] == ["2fold", "5fold"]
 
 
 def test_presentation_overrides_do_not_change_scores_or_orientations(tmp_path):

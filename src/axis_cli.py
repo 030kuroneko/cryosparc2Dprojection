@@ -7,6 +7,7 @@ from cryosparc_2d_projection.axis_external_job import (
     run_axis_search_job,
 )
 from cryosparc_2d_projection.axis_presentation import parse_axis_rolls
+from cryosparc_2d_projection.axis_registry import get_axis_family
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.axis_search import AxisProximityConfig, AxisSearchConfig
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
@@ -21,9 +22,12 @@ def build_parser():
     parser.add_argument("--select-output", default="templates_selected")
     parser.add_argument("--volume-job", required=True)
     parser.add_argument("--volume-output", default="volume")
-    families = parser.add_mutually_exclusive_group()
-    families.add_argument("--axis-family", choices=("2fold", "3fold", "5fold"))
-    families.add_argument("--axis-families")
+    parser.add_argument(
+        "--axis-family",
+        type=_parse_axis_families,
+        metavar="FAMILY[,FAMILY...]",
+        help="Axis family or comma-separated families (default: all)",
+    )
     parser.add_argument("--low-resolution-A", type=float, default=80.0)
     parser.add_argument("--high-resolution-A", type=float, default=15.0)
     parser.add_argument("--mask-radius-fraction", type=float, default=0.45)
@@ -73,7 +77,7 @@ def main(argv=None, *, client_factory=None):
         args.workspace,
         AxisSourceOutput(args.select_job, args.select_output),
         AxisSourceOutput(args.volume_job, args.volume_output),
-        families=_parse_axis_families(args.axis_family, args.axis_families),
+        families=args.axis_family,
         config=config,
         proximity_config=AxisProximityConfig(
             cone_degrees=args.axis_cone_degrees,
@@ -96,15 +100,17 @@ def main(argv=None, *, client_factory=None):
     return 0
 
 
-def _parse_axis_families(single, multiple):
-    if single is not None:
-        return (single,)
-    if multiple is None:
+def _parse_axis_families(value):
+    if value is None:
         return None
-    values = tuple(item.strip() for item in multiple.split(",") if item.strip())
+
+    values = tuple(item.strip() for item in value.split(",") if item.strip())
     if not values:
-        raise ValueError("axis families must not be empty")
-    return values
+        raise argparse.ArgumentTypeError("axis family list must not be empty")
+    try:
+        return tuple(get_axis_family("I", family).name for family in values)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 if __name__ == "__main__":
