@@ -1,5 +1,43 @@
 # cryosparc2Dprojection
 
+## Symmetry-Axis Class Search
+
+`cryosparc-axis-search` is the image-only CryoSPARC 5.0.6 workflow. It needs
+only a Select 2D template output and a volume output; particles and refinement
+poses are not inputs. It searches the `I` 2fold, 3fold, and 5fold Axis
+Families by default, ranks with the physical band-limited Axis Class Score,
+refines Top N candidates inside the configured axis cone, and publishes the
+approved static five-column results.
+
+```bash
+uv run cryosparc-axis-search \
+  --url https://cryosparc.example.org \
+  --project P1 \
+  --workspace W1 \
+  --select-job J100 \
+  --select-output templates_selected \
+  --volume-job J200 \
+  --volume-output volume
+```
+
+Use `--axis-family 2fold` for one family or
+`--axis-families 2fold,5fold` for a subset. Repeat `--axis-roll`, for example
+`--axis-roll 2fold=10 --axis-roll 3fold=-5`, for final display-only rotation.
+The command also accepts the documented score, shift, proximity, comparison,
+surface, and rendering overrides shown by `--help`.
+
+Outputs are ordered by family then rank:
+
+- `axis_candidates_raw`
+- `axis_candidates_aligned`
+- `axis_near_projections`
+- `axis_exact_references`
+
+The job writes `axis_search_results.json`, five-column PNG/Event Log previews,
+and no interactive axis-volume output. The unsharpened `map` always controls
+ranking; `map_sharp`, DPI, page size, render size/grid, Surface Level, and
+manual axis roll affect presentation only.
+
 Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement.
 
 The job:
