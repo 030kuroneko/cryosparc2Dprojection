@@ -186,11 +186,8 @@ def test_manual_surface_sampling_grid_never_upsamples_the_rendering_map():
     assert resolved.was_downsampled is False
 
 
-@pytest.mark.parametrize("requested", [None, 1, 0, -3])
+@pytest.mark.parametrize("requested", [1, 0, -3])
 def test_surface_sampling_grid_rejects_invalid_manual_sizes(requested):
-    if requested is None:
-        pytest.skip("None selects automatic native-grid mode")
-
     with pytest.raises(ValueError, match="at least 2"):
         resolve_surface_sampling_grid((12, 12, 12), requested_grid_size=requested)
 
