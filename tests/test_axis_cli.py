@@ -4,6 +4,7 @@ import json
 import numpy as np
 import pytest
 from cryosparc import mrc
+from cryosparc.dataset import Dataset
 
 from cryosparc_2d_projection.axis_cli import build_parser, main
 from cryosparc_2d_projection.axis_projection import project_axis_reference
@@ -157,6 +158,30 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path):
         and "exact_axis_rotation_matrix" in message
         for message in job.logs
     )
+
+
+def test_axis_cli_loads_templates_from_cryosparc_dataset(tmp_path):
+    job = AxisJob(tmp_path)
+    job.datasets["templates"] = Dataset(job.datasets["templates"])
+    client = AxisClient(AxisProject(job))
+
+    exit_code = main(
+        [
+            "--url", "https://cryosparc.example.test",
+            "--project", "P1",
+            "--workspace", "W1",
+            "--select-job", "J10",
+            "--select-output", "templates_selected",
+            "--volume-job", "J20",
+            "--volume-output", "volume",
+            "--axis-family", "2fold",
+            "--top-n", "1",
+            "--render-size", "64",
+        ],
+        client_factory=lambda url: client,
+    )
+
+    assert exit_code == 0
 
 
 def test_axis_cli_exposes_approved_one_family_defaults():

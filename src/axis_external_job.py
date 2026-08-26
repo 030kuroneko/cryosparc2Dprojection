@@ -320,16 +320,19 @@ def _load_templates(project, dataset):
     classes = {}
     pixel_sizes = set()
     stack_cache = {}
-    for index, row in enumerate(dataset):
-        path_value = row["blob/path"]
+    for index, (path_value, image_index, pixel_size) in enumerate(zip(
+        dataset["blob/path"],
+        dataset["blob/idx"],
+        dataset["blob/psize_A"],
+        strict=True,
+    )):
         path = _resolve_project_path(project, path_value)
         if path not in stack_cache:
             _, stack_cache[path] = mrc.read(path)
-        image_index = int(row["blob/idx"])
         classes[index + 1] = np.asarray(
-            stack_cache[path][image_index], dtype=np.float32
+            stack_cache[path][int(image_index)], dtype=np.float32
         )
-        pixel_sizes.add(float(row["blob/psize_A"]))
+        pixel_sizes.add(float(pixel_size))
     if not classes:
         raise ValueError("Select 2D templates input is empty")
     if len(pixel_sizes) != 1:
