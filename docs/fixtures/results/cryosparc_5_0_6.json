@@ -1,10 +1,9 @@
 {
   "schema": "cryosparc-5.0.6-convention-fixture/v1",
   "status": "skipped",
-  "reason": "missing CRYOSPARC_FIXTURE_URL, CRYOSPARC_FIXTURE_PROJECT, CRYOSPARC_FIXTURE_WORKSPACE, CRYOSPARC_FIXTURE_VOLUME_JOB, CRYOSPARC_FIXTURE_OBSERVATION",
+  "reason": "missing CRYOSPARC_FIXTURE_URL, CRYOSPARC_FIXTURE_PROJECT, CRYOSPARC_FIXTURE_WORKSPACE, CRYOSPARC_FIXTURE_VOLUME_JOB",
   "executed": false,
   "server_version": null,
-  "observation_path": null,
   "job_uid": null,
   "output_names": [],
   "camera_checks": null,
