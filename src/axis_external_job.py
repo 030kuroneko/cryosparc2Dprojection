@@ -19,6 +19,7 @@ from cryosparc_2d_projection.axis_search import (
 from cryosparc_2d_projection.axis_presentation import (
     AXIS_RESULT_COLUMNS,
     EXACT_AXIS_RESULT_COLUMNS,
+    AxisResultLabel,
     AxisResultPanelRow,
     ExactAxisResultPanelRow,
     apply_axis_display_roll,
@@ -352,15 +353,17 @@ def run_axis_search_job(
             if refined is None:
                 panel_rows.append(
                     ExactAxisResultPanelRow(
-                        family_name=candidate.family_name,
-                        rank=rank,
-                        class_number=candidate.class_number,
+                        label=AxisResultLabel(
+                            family_name=candidate.family_name,
+                            rank=rank,
+                            class_number=candidate.class_number,
+                            axis_class_score=candidate.exact_score,
+                        ),
                         class_average=np.flipud(candidate.raw_class),
                         exact_matched_projection=np.flipud(
                             native_exact["matched_projection"]
                         ),
                         exact_axis_view=exact_view,
-                        axis_class_score=candidate.exact_score,
                     )
                 )
             else:
@@ -409,9 +412,13 @@ def run_axis_search_job(
                     near_view = np.asarray(image.convert("RGB")).copy()
                 panel_rows.append(
                     AxisResultPanelRow(
-                        family_name=candidate.family_name,
-                        rank=rank,
-                        class_number=candidate.class_number,
+                        label=AxisResultLabel(
+                            family_name=candidate.family_name,
+                            rank=rank,
+                            class_number=candidate.class_number,
+                            axis_class_score=candidate.exact_score,
+                            near_axis_score=refined.refined_score,
+                        ),
                         axis_aligned_class=np.flipud(candidate.raw_class),
                         near_axis_projection=np.flipud(
                             native_near["matched_projection"]
@@ -421,8 +428,6 @@ def run_axis_search_job(
                         ),
                         near_axis_view=near_view,
                         exact_axis_view=exact_view,
-                        axis_class_score=candidate.exact_score,
-                        near_axis_score=refined.refined_score,
                     )
                 )
             rows.append(

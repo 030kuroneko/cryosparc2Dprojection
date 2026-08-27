@@ -3,6 +3,7 @@ from matplotlib.text import Text
 
 from cryosparc_2d_projection.axis_presentation import (
     AXIS_RESULT_COLUMNS,
+    AxisResultLabel,
     AxisResultPanelRow,
     ExactAxisResultPanelRow,
     apply_axis_display_roll,
@@ -27,9 +28,12 @@ def test_positive_axis_roll_is_visually_counterclockwise_and_preserves_box():
 def test_axis_result_figure_has_exactly_five_columns_in_approved_order():
     panel = _marker_panel()
     row = AxisResultPanelRow(
-        family_name="2fold",
-        rank=1,
-        class_number=3,
+        label=AxisResultLabel(
+            family_name="2fold",
+            rank=1,
+            class_number=3,
+            axis_class_score=0.0,
+        ),
         axis_aligned_class=panel,
         near_axis_projection=panel,
         exact_axis_projection=panel,
@@ -52,16 +56,18 @@ def test_axis_result_figure_has_exactly_five_columns_in_approved_order():
 def test_axis_result_row_label_reports_family_rank_class_and_scores_outside_panels():
     panel = _marker_panel()
     row = AxisResultPanelRow(
-        family_name="5fold",
-        rank=2,
-        class_number=21,
+        label=AxisResultLabel(
+            family_name="5fold",
+            rank=2,
+            class_number=21,
+            axis_class_score=0.87321,
+            near_axis_score=0.88104,
+        ),
         axis_aligned_class=panel,
         near_axis_projection=panel,
         exact_axis_projection=panel,
         near_axis_view=panel,
         exact_axis_view=panel,
-        axis_class_score=0.87321,
-        near_axis_score=0.88104,
     )
 
     figure = create_axis_result_figure([row])
@@ -79,13 +85,15 @@ def test_axis_result_row_label_reports_family_rank_class_and_scores_outside_pane
 def test_exact_axis_result_row_label_omits_near_score():
     panel = _marker_panel()
     row = ExactAxisResultPanelRow(
-        family_name="3fold",
-        rank=1,
-        class_number=8,
+        label=AxisResultLabel(
+            family_name="3fold",
+            rank=1,
+            class_number=8,
+            axis_class_score=0.76543,
+        ),
         class_average=panel,
         exact_matched_projection=panel,
         exact_axis_view=panel,
-        axis_class_score=0.76543,
     )
 
     figure = create_axis_result_figure([row])

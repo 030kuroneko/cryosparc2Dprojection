@@ -24,14 +24,29 @@ EXACT_AXIS_RESULT_COLUMNS = (
 
 
 @dataclass(frozen=True)
-class ExactAxisResultPanelRow:
+class AxisResultLabel:
     family_name: str
     rank: int
     class_number: int
+    axis_class_score: float
+    near_axis_score: float | None = None
+
+    def text(self):
+        result = (
+            f"{self.family_name} · Rank {self.rank} · Class {self.class_number} "
+            f"· Score {self.axis_class_score:.4f}"
+        )
+        if self.near_axis_score is not None:
+            result += f" · Near {self.near_axis_score:.4f}"
+        return result
+
+
+@dataclass(frozen=True)
+class ExactAxisResultPanelRow:
+    label: AxisResultLabel
     class_average: np.ndarray
     exact_matched_projection: np.ndarray
     exact_axis_view: np.ndarray
-    axis_class_score: float = 0.0
 
     def panels(self):
         return (
@@ -47,16 +62,12 @@ class ExactAxisResultPanelRow:
 
 @dataclass(frozen=True)
 class AxisResultPanelRow:
-    family_name: str
-    rank: int
-    class_number: int
+    label: AxisResultLabel
     axis_aligned_class: np.ndarray
     near_axis_projection: np.ndarray
     exact_axis_projection: np.ndarray
     near_axis_view: np.ndarray
     exact_axis_view: np.ndarray
-    axis_class_score: float = 0.0
-    near_axis_score: float | None = None
 
     def panels(self):
         return (
@@ -148,14 +159,8 @@ def create_axis_result_figure(
         nrows=len(rows), ncols=1, squeeze=False
     )
     for row_index, row in enumerate(rows):
-        roll = float(axis_rolls.get(row.family_name, 0.0))
-        score_text = (
-            f"{row.family_name} · Rank {row.rank} · Class {row.class_number} "
-            f"· Score {row.axis_class_score:.4f}"
-        )
-        near_score = getattr(row, "near_axis_score", None)
-        if near_score is not None:
-            score_text += f" · Near {near_score:.4f}"
+        roll = float(axis_rolls.get(row.label.family_name, 0.0))
+        score_text = row.label.text()
         subfigure = subfigures[row_index, 0]
         subfigure.suptitle(score_text)
         panel_axes = np.asarray(
