@@ -99,3 +99,27 @@ _Avoid_: Camera translation, camera rotation
 **Interactive Class Volume**:
 A rotated copy of the Rendering Map whose voxel grid makes the CryoSPARC volume viewer's default view correspond to one requested Class Camera Orientation.
 _Avoid_: Camera metadata, static camera render
+
+**Axis Search Run**:
+The complete CryoSPARC workflow that loads selected class averages and a map, performs Exact-Axis Ranking, optionally performs Near-Axis Refinement, and produces rendered and machine-readable results.
+_Avoid_: Exact-Axis Ranking, axis-search algorithm
+
+**Axis Family**:
+A family of candidate directions that shares one symmetry-axis order and canonical camera convention, such as 2fold, 3fold, or 5fold.
+_Avoid_: Class, search result, individual candidate
+
+**Axis Class Score**:
+The maximum band-limited, soft-masked normalized cross-correlation across the permitted in-plane rotations and XY shifts on bounded Search Projections. It ranks classes within one Axis Family and is neither a probability nor a native-grid diagnostic score.
+_Avoid_: Match Confidence, probability, Diagnostic Band-Limited Score
+
+**Exact-Axis Ranking**:
+The stage that scores selected class averages against the canonical orientation of each requested Axis Family and ranks the matching classes.
+_Avoid_: Axis Search Run, Near-Axis Refinement
+
+**Near-Axis Refinement**:
+The stage that searches a bounded orientation cone around an Exact-Axis Ranking candidate without changing its Axis Family.
+_Avoid_: Exact-Axis Ranking, global orientation search
+
+**Result Rendering**:
+The stage that turns completed axis-search candidates into camera views, template stacks, previews, and machine-readable results.
+_Avoid_: Axis Search Run, orientation search

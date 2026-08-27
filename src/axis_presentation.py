@@ -9,12 +9,39 @@ from cryosparc_2d_projection.axis_registry import get_axis_family
 
 
 AXIS_RESULT_COLUMNS = (
-    "Axis-Aligned Class",
-    "Best Near-Axis Projection",
-    "Exact Axis Projection",
-    "Best Near-Axis 3D View",
-    "Exact Axis 3D View",
+    "Class Average",
+    "Near-Axis Matched Projection",
+    "Exact-Axis Matched Projection",
+    "Near-Axis Camera View",
+    "Exact-Axis Camera View",
 )
+
+EXACT_AXIS_RESULT_COLUMNS = (
+    "Class Average",
+    "Exact-Axis Matched Projection",
+    "Exact-Axis Camera View",
+)
+
+
+@dataclass(frozen=True)
+class ExactAxisResultPanelRow:
+    family_name: str
+    rank: int
+    class_number: int
+    class_average: np.ndarray
+    exact_matched_projection: np.ndarray
+    exact_axis_view: np.ndarray
+
+    def panels(self):
+        return (
+            self.class_average,
+            self.exact_matched_projection,
+            self.exact_axis_view,
+        )
+
+    @property
+    def columns(self):
+        return EXACT_AXIS_RESULT_COLUMNS
 
 
 @dataclass(frozen=True)
@@ -36,6 +63,10 @@ class AxisResultPanelRow:
             self.near_axis_view,
             self.exact_axis_view,
         )
+
+    @property
+    def columns(self):
+        return AXIS_RESULT_COLUMNS
 
 
 def parse_axis_rolls(values):
@@ -102,20 +133,23 @@ def create_axis_result_figure(
     if not rows:
         raise ValueError("at least one Axis Result row is required")
     axis_rolls = dict(axis_rolls or {})
+    columns = rows[0].columns
+    if any(row.columns != columns for row in rows):
+        raise ValueError("all Axis Result rows must use the same columns")
     figure = Figure(
-        figsize=(15, 3 * len(rows)),
+        figsize=(3 * len(columns), 3 * len(rows)),
         dpi=int(dpi),
         constrained_layout=True,
     )
     for row_index, row in enumerate(rows):
         roll = float(axis_rolls.get(row.family_name, 0.0))
         for column_index, (title, panel) in enumerate(
-            zip(AXIS_RESULT_COLUMNS, row.panels(), strict=True)
+            zip(columns, row.panels(), strict=True)
         ):
             axis = figure.add_subplot(
                 len(rows),
-                len(AXIS_RESULT_COLUMNS),
-                row_index * len(AXIS_RESULT_COLUMNS) + column_index + 1,
+                len(columns),
+                row_index * len(columns) + column_index + 1,
             )
             displayed = apply_axis_display_roll(
                 panel,

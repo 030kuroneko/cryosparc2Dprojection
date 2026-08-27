@@ -6,8 +6,8 @@
 only a Select 2D template output and a volume output; particles and refinement
 poses are not inputs. It searches the `I` 2fold, 3fold, and 5fold Axis
 Families by default, ranks with the physical band-limited Axis Class Score,
-refines Top N candidates inside the configured axis cone, and publishes the
-approved static five-column results.
+and publishes native-grid Exact-Axis results. Near-Axis Refinement is optional
+and runs only with `--refine-near-axis`.
 
 ```bash
 uv run cryosparc-axis-search \
@@ -26,17 +26,30 @@ Use `--axis-family 2fold` for one family or
 The command also accepts the documented score, shift, proximity, comparison,
 surface, and rendering overrides shown by `--help`.
 
+Exact-Axis Ranking uses Search Projections of at most 128 pixels per side.
+For each roll angle, a band-limited, soft-masked FFT normalized-correlation map
+compares every permitted XY shift at once. The Event Log and terminal report
+the active stage, family, class, pass, angle progress, elapsed time, and ETA.
+
 Outputs are ordered by family then rank:
 
 - `axis_candidates_raw`
 - `axis_candidates_aligned`
-- `axis_near_projections`
 - `axis_exact_references`
+- `axis_exact_search_projections`
+- `axis_exact_matched_projections`
 
-The job writes `axis_search_results.json`, five-column PNG/Event Log previews,
-and no interactive axis-volume output. The unsharpened `map` always controls
-ranking; `map_sharp`, DPI, page size, render size/grid, Surface Level, and
-manual axis roll affect presentation only.
+With `--refine-near-axis`, the job additionally publishes:
+
+- `axis_near_projections`
+- `axis_near_search_projections`
+- `axis_near_matched_projections`
+
+The job writes `axis_search_results.json`, three-column Exact-Axis PNG/Event
+Log previews, and no interactive axis-volume output. Enabling Near-Axis
+Refinement expands the preview to five columns. The unsharpened `map` always
+controls ranking; `map_sharp`, DPI, page size, render size/grid, Surface Level,
+and manual axis roll affect presentation only.
 
 Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement.
 

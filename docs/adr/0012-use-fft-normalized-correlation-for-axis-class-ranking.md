@@ -1,0 +1,3 @@
+# Use FFT normalized correlation for Axis Class ranking
+
+Rank each class against a bounded Search Projection of at most 128 pixels by taking the maximum band-limited, soft-masked FFT normalized cross-correlation across the permitted roll and XY shifts. This replaces the previous per-shift image reconstruction and score calculation: it compares every allowed integer shift in one correlation map while preserving explicit roll refinement, mirror diagnostics, score provenance, and native-grid reprojection after selection. Near-Axis Refinement remains optional because it answers a different, more expensive question than ranking classes against an exact symmetry-axis projection.

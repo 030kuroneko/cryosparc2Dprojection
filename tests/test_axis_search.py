@@ -61,6 +61,7 @@ def test_one_family_ranking_uses_axis_score_and_breaks_ties_by_class_number():
 def test_axis_search_defaults_match_the_approved_contract():
     config = AxisSearchConfig()
 
+    assert config.search_max_size == 128
     assert config.low_resolution_A == 80.0
     assert config.high_resolution_A == 15.0
     assert config.mask_radius_fraction == 0.45
@@ -99,6 +100,74 @@ def test_roll_search_respects_family_period_and_shift_bound():
     assert candidate.roll_degrees == 17.0
     assert abs(candidate.shift_xy_pixels[0]) <= 3.0
     assert abs(candidate.shift_xy_pixels[1]) <= 3.0
+
+
+def test_reported_exact_rotation_reproduces_the_roll_selected_search_projection():
+    volume = _asymmetric_volume()
+    reference = project_axis_reference(volume, "5fold").projection
+    transformed = shift(
+        rotate(reference, 17.0, reshape=False, order=1),
+        shift=(1.0, -2.0),
+        order=1,
+    )
+
+    candidate = rank_axis_family(
+        {1: transformed},
+        volume,
+        family="5fold",
+        class_pixel_size_A=1.0,
+        map_pixel_size_A=1.0,
+        config=AxisSearchConfig(top_n=1),
+    ).candidates[0]
+    reproduced = project_volume_at_rotation(volume, candidate.exact_rotation_matrix)
+    reproduced = shift(
+        reproduced,
+        shift=(candidate.shift_xy_pixels[1], candidate.shift_xy_pixels[0]),
+        order=1,
+        mode="constant",
+        cval=0.0,
+        prefilter=False,
+    )
+
+    assert np.corrcoef(
+        reproduced.ravel(), candidate.search_projection.ravel()
+    )[0, 1] > 0.999
+
+
+def test_exact_axis_ranking_uses_a_bounded_search_projection_and_reports_progress():
+    volume = _asymmetric_volume(size=16)
+    reference = project_axis_reference(volume, "2fold").projection
+    events = []
+
+    result = rank_axis_family(
+        {1: reference},
+        volume,
+        family="2fold",
+        class_pixel_size_A=10.0,
+        map_pixel_size_A=10.0,
+        config=AxisSearchConfig(
+            search_max_size=8,
+            roll_coarse_step_degrees=90.0,
+            roll_refine_step_degrees=45.0,
+            shift_bound_fraction=0.25,
+            top_n=1,
+        ),
+        progress_callback=events.append,
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.raw_class.shape == (16, 16)
+    assert candidate.search_projection.shape == (8, 8)
+    assert candidate.score_metadata["search_box_size"] == 8
+    assert candidate.score_metadata["search_pixel_size_A"] == 20.0
+    assert candidate.score_metadata["score_provenance"] == (
+        "band_limited_soft_masked_fft_normalized_cross_correlation"
+    )
+    assert events
+    assert events[-1].stage == "exact-ranking"
+    assert events[-1].family_name == "2fold"
+    assert events[-1].class_number == 1
+    assert events[-1].completed == events[-1].total
 
 
 def test_invalid_axis_class_score_fails_without_raw_correlation_fallback():
@@ -248,6 +317,44 @@ def test_axis_proximity_defaults_match_the_approved_contract():
     assert config.refine_step_degrees == 0.5
 
 
+def test_near_axis_refinement_uses_a_bounded_hierarchical_grid_and_reports_progress():
+    volume = _asymmetric_volume()
+    family = get_axis_family("I", "2fold")
+    near_camera = (
+        Rotation.from_rotvec(np.deg2rad([0.0, 6.0, 0.0])).as_matrix()
+        @ family.canonical_camera_matrix
+    )
+    exact = rank_axis_families(
+        {1: project_volume_at_rotation(volume, near_camera)},
+        volume,
+        families=("2fold",),
+        class_pixel_size_A=1.0,
+        map_pixel_size_A=1.0,
+        config=AxisSearchConfig(top_n=1),
+    )
+    events = []
+
+    refined = refine_axis_candidates(
+        exact,
+        volume,
+        class_pixel_size_A=1.0,
+        map_pixel_size_A=1.0,
+        config=AxisProximityConfig(
+            cone_degrees=9.0,
+            coarse_step_degrees=3.0,
+            refine_step_degrees=0.5,
+        ),
+        progress_callback=events.append,
+    ).rows[0]
+
+    assert refined.near_axis_projection.shape == (32, 32)
+    assert refined.score_metadata["search_box_size"] == 32
+    assert refined.score_metadata["projection_evaluation_count"] <= 131
+    assert events
+    assert events[-1].stage == "near-axis-refinement"
+    assert events[-1].completed == events[-1].total
+
+
 def test_cone_boundary_result_is_retained_with_warning_without_expansion():
     volume = _asymmetric_volume()
     family = get_axis_family("I", "5fold")
@@ -320,3 +427,49 @@ def test_aligned_class_and_near_projection_share_canonical_presentation_coordina
         refined.near_axis_projection_display.ravel(),
     )[0, 1]
     assert correlation > 0.95
+
+
+def test_near_axis_refinement_reoptimizes_roll_and_shift_on_the_search_grid():
+    volume = _asymmetric_volume()
+    family = get_axis_family("I", "3fold")
+    near_camera = (
+        Rotation.from_rotvec(np.deg2rad([0.0, 6.0, 0.0])).as_matrix()
+        @ family.canonical_camera_matrix
+    )
+    source_class = shift(
+        rotate(
+            project_volume_at_rotation(volume, near_camera),
+            12.0,
+            reshape=False,
+            order=1,
+        ),
+        shift=(1.0, -1.0),
+        order=1,
+    )
+    exact = rank_axis_families(
+        {1: source_class},
+        volume,
+        families=("3fold",),
+        class_pixel_size_A=1.0,
+        map_pixel_size_A=1.0,
+        config=AxisSearchConfig(top_n=1),
+    )
+
+    refined = refine_axis_candidates(
+        exact,
+        volume,
+        class_pixel_size_A=1.0,
+        map_pixel_size_A=1.0,
+        config=AxisProximityConfig(
+            cone_degrees=9.0,
+            coarse_step_degrees=3.0,
+            refine_step_degrees=1.0,
+        ),
+    ).rows[0]
+
+    assert refined.roll_degrees == pytest.approx(12.0, abs=3.0)
+    assert refined.shift_xy_pixels == pytest.approx((-1.0, 1.0), abs=1.0)
+    assert refined.matched_search_projection.shape == source_class.shape
+    assert refined.score_metadata["translation_strategy"] == (
+        "fft_normalized_cross_correlation"
+    )

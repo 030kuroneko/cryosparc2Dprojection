@@ -1,6 +1,7 @@
 """Command-line entry point for image-only Symmetry-Axis Class Search."""
 
 import argparse
+import sys
 
 from cryosparc_2d_projection.axis_external_job import (
     AxisSourceOutput,
@@ -40,6 +41,11 @@ def build_parser():
     parser.add_argument("--axis-cone-degrees", type=float, default=15.0)
     parser.add_argument("--tilt-coarse-step", type=float, default=3.0)
     parser.add_argument("--tilt-refine-step", type=float, default=0.5)
+    parser.add_argument(
+        "--refine-near-axis",
+        action="store_true",
+        help="Refine selected Exact-Axis candidates inside the configured cone.",
+    )
     parser.add_argument("--axis-roll", action="append", default=[])
     parser.add_argument("--comparison-dpi", type=int, default=100)
     parser.add_argument("--preview-page-size", type=int, default=10)
@@ -96,6 +102,9 @@ def main(argv=None, *, client_factory=None):
             image_size=args.render_size,
             grid_size=args.render_grid_size,
         ),
+        refine_near_axis=args.refine_near_axis,
+        status_callback=print,
+        warning_callback=lambda message: print(message, file=sys.stderr),
     )
     return 0
 
