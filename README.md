@@ -95,9 +95,26 @@ uv sync
 Or in the already-created conda environment:
 
 ```bash
-python -m pip install -e .
+python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
+
+## Update an editable installation
+
+After installing the project from its Git checkout into an activated Conda
+environment, update it from anywhere with:
+
+```bash
+cryosparc-update
+```
+
+The command fast-forwards the current branch from its configured upstream,
+reinstalls the project and development test dependency with the same Python
+interpreter, and runs the complete test suite. It refuses to run from a
+detached HEAD, without an upstream, or while tracked files have local changes.
+Untracked files are preserved unless Git reports that an incoming file would
+overwrite one. A failed pull, installation, or test run returns a non-zero
+status and is not automatically rolled back.
 
 Log in using CryoSPARC Tools' v5 token flow. Use the same URL you use in the browser:
 

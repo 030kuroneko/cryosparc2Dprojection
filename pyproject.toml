@@ -15,10 +15,16 @@ dependencies = [
     "scipy>=1.13,<2",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+]
+
 [project.scripts]
 cryosparc-2d-projection = "cryosparc_2d_projection.cli:main"
 cryosparc-506-convention-fixture = "cryosparc_2d_projection.live_fixture:main"
 cryosparc-axis-search = "cryosparc_2d_projection.axis_cli:main"
+cryosparc-update = "cryosparc_2d_projection.update_cli:main"
 
 [tool.setuptools]
 packages = ["cryosparc_2d_projection"]
