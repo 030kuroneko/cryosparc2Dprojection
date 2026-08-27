@@ -38,6 +38,8 @@ Outputs are ordered by family then rank:
 - `axis_exact_references`
 - `axis_exact_search_projections`
 - `axis_exact_matched_projections`
+- `axis_search_preview` (aligned classes in displayed order, with the first
+  preview page attached to its output card)
 
 With `--refine-near-axis`, the job additionally publishes:
 
@@ -46,10 +48,15 @@ With `--refine-near-axis`, the job additionally publishes:
 - `axis_near_matched_projections`
 
 The job writes `axis_search_results.json`, three-column Exact-Axis PNG/Event
-Log previews, and no interactive axis-volume output. Enabling Near-Axis
-Refinement expands the preview to five columns. The unsharpened `map` always
-controls ranking; `map_sharp`, DPI, page size, render size/grid, Surface Level,
-and manual axis roll affect presentation only.
+Log previews, and no interactive axis-volume output. Each preview row labels
+the Axis Family, family-local rank, original CryoSPARC Class Number, Axis Class
+Score, and optional Near-Axis score outside the scientific image panels. The
+first page is also the Dashboard job tile and `axis_search_preview` output
+image; all pages remain in the Event Log. Enabling Near-Axis Refinement expands
+the preview to five columns. Preview upload failure is warned without failing
+completed scientific outputs. The unsharpened `map` always controls ranking;
+`map_sharp`, DPI, page size, render size/grid, Surface Level, and manual axis
+roll affect presentation only.
 
 Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement.
 

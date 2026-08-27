@@ -31,6 +31,7 @@ class ExactAxisResultPanelRow:
     class_average: np.ndarray
     exact_matched_projection: np.ndarray
     exact_axis_view: np.ndarray
+    axis_class_score: float = 0.0
 
     def panels(self):
         return (
@@ -54,6 +55,8 @@ class AxisResultPanelRow:
     exact_axis_projection: np.ndarray
     near_axis_view: np.ndarray
     exact_axis_view: np.ndarray
+    axis_class_score: float = 0.0
+    near_axis_score: float | None = None
 
     def panels(self):
         return (
@@ -141,16 +144,27 @@ def create_axis_result_figure(
         dpi=int(dpi),
         constrained_layout=True,
     )
+    subfigures = figure.subfigures(
+        nrows=len(rows), ncols=1, squeeze=False
+    )
     for row_index, row in enumerate(rows):
         roll = float(axis_rolls.get(row.family_name, 0.0))
+        score_text = (
+            f"{row.family_name} · Rank {row.rank} · Class {row.class_number} "
+            f"· Score {row.axis_class_score:.4f}"
+        )
+        near_score = getattr(row, "near_axis_score", None)
+        if near_score is not None:
+            score_text += f" · Near {near_score:.4f}"
+        subfigure = subfigures[row_index, 0]
+        subfigure.suptitle(score_text)
+        panel_axes = np.asarray(
+            subfigure.subplots(nrows=1, ncols=len(columns), squeeze=False)
+        )[0]
         for column_index, (title, panel) in enumerate(
             zip(columns, row.panels(), strict=True)
         ):
-            axis = figure.add_subplot(
-                len(rows),
-                len(columns),
-                row_index * len(columns) + column_index + 1,
-            )
+            axis = panel_axes[column_index]
             displayed = apply_axis_display_roll(
                 panel,
                 roll,

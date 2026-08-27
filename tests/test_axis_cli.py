@@ -60,6 +60,8 @@ class AxisJob:
         self.saved = {}
         self.plots = []
         self.logs = []
+        self.output_images = {}
+        self.tile_images = []
 
     def add_input(self, **spec):
         self.inputs.append(spec)
@@ -95,6 +97,12 @@ class AxisJob:
 
     def log_plot(self, figure, text, formats, savefig_kw=None):
         self.plots.append((figure, text))
+
+    def set_output_image(self, name, image, savefig_kw=None):
+        self.output_images[name] = image
+
+    def set_tile_image(self, image, savefig_kw=None):
+        self.tile_images.append(image)
 
 
 class AxisProject:
@@ -160,6 +168,7 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
         "axis_exact_references",
         "axis_exact_search_projections",
         "axis_exact_matched_projections",
+        "axis_search_preview",
     }
     assert set(job.saved) == set(job.outputs)
     metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
@@ -184,6 +193,11 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
     assert metadata["presentation"]["static_only"] is True
     assert len(job.plots) == 1
     assert len(job.plots[0][0].axes) == 3
+    assert job.output_images["axis_search_preview"]
+    assert len(job.tile_images) == 1
+    preview = job.saved["axis_search_preview"]
+    aligned = job.saved["axis_candidates_aligned"]
+    assert np.array_equal(preview["blob/idx"], aligned["blob/idx"])
     assert metadata["timings"]["exact-ranking"]["elapsed_seconds"] >= 0
     assert any(
         message.startswith("Axis Search stage: stage=exact-ranking status=started")
@@ -197,6 +211,57 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
     assert any(
         message.startswith("Axis Search row JSON:")
         and "exact_axis_rotation_matrix" in message
+        for message in job.logs
+    )
+
+
+def test_axis_search_preserves_source_class_number_from_blob_index(tmp_path):
+    job = AxisJob(tmp_path)
+    _, source = mrc.read(tmp_path / "templates.mrcs")
+    mrc.write(tmp_path / "templates.mrcs", np.repeat(source, 8, axis=0), 1.0)
+    job.datasets["templates"]["blob/idx"][0] = 7
+    client = AxisClient(AxisProject(job))
+
+    exit_code = main(
+        [
+            "--url", "https://cryosparc.example.test",
+            "--project", "P1", "--workspace", "W1",
+            "--select-job", "J1", "--select-output", "templates_selected",
+            "--volume-job", "J2", "--volume-output", "volume",
+            "--axis-family", "2fold", "--top-n", "1", "--render-size", "64",
+        ],
+        client_factory=lambda url: client,
+    )
+
+    assert exit_code == 0
+    metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
+    assert metadata["rows"][0]["class_number"] == 8
+
+
+def test_dashboard_preview_upload_failure_warns_without_failing_job(tmp_path):
+    job = AxisJob(tmp_path)
+    job.set_output_image = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("preview upload unavailable")
+    )
+    job.set_tile_image = job.set_output_image
+    client = AxisClient(AxisProject(job))
+
+    exit_code = main(
+        [
+            "--url", "https://cryosparc.example.test",
+            "--project", "P1", "--workspace", "W1",
+            "--select-job", "J1", "--select-output", "templates_selected",
+            "--volume-job", "J2", "--volume-output", "volume",
+            "--axis-family", "2fold", "--top-n", "1", "--render-size", "64",
+        ],
+        client_factory=lambda url: client,
+    )
+
+    assert exit_code == 0
+    assert "axis_search_preview" in job.saved
+    assert any(
+        "Could not attach Axis Search Dashboard Preview" in message
+        and "preview upload unavailable" in message
         for message in job.logs
     )
 

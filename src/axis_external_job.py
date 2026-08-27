@@ -101,6 +101,7 @@ def run_axis_search_job(
         "axis_exact_references",
         "axis_exact_search_projections",
         "axis_exact_matched_projections",
+        "axis_search_preview",
     ]
     if refine_near_axis:
         output_names.extend(
@@ -359,6 +360,7 @@ def run_axis_search_job(
                             native_exact["matched_projection"]
                         ),
                         exact_axis_view=exact_view,
+                        axis_class_score=candidate.exact_score,
                     )
                 )
             else:
@@ -419,6 +421,8 @@ def run_axis_search_job(
                         ),
                         near_axis_view=near_view,
                         exact_axis_view=exact_view,
+                        axis_class_score=candidate.exact_score,
+                        near_axis_score=refined.refined_score,
                     )
                 )
             rows.append(
@@ -506,6 +510,9 @@ def run_axis_search_job(
             ),
             "axis_exact_matched_projections": np.asarray(
                 exact_matched_stack, dtype=np.float32
+            ),
+            "axis_search_preview": np.asarray(
+                aligned_stack, dtype=np.float32
             ),
         }
         if refine_near_axis:
@@ -599,6 +606,11 @@ def run_axis_search_job(
                 formats=["png"],
                 savefig_kw={"dpi": comparison_options.dpi, "bbox_inches": "tight"},
             )
+        _attach_axis_dashboard_preview(
+            job,
+            job_directory / "axis_search_preview_001.png",
+            status_callback=status_callback,
+        )
         for row in rows:
             refined_text = (
                 "disabled"
@@ -736,6 +748,25 @@ def _safe_warning(job, message, callback):
     _safe_status(job, message, callback)
 
 
+def _attach_axis_dashboard_preview(job, preview_path, *, status_callback=None):
+    for target, attach in (
+        (
+            "output card",
+            lambda: job.set_output_image("axis_search_preview", preview_path),
+        ),
+        ("job tile", lambda: job.set_tile_image(preview_path)),
+    ):
+        try:
+            attach()
+        except Exception as error:
+            _safe_warning(
+                job,
+                "WARNING: Could not attach Axis Search Dashboard Preview "
+                f"to {target}; {type(error).__name__}: {error}",
+                status_callback,
+            )
+
+
 def _native_axis_match(
     class_average,
     matching_map,
@@ -804,16 +835,21 @@ def _load_templates(project, dataset):
     classes = {}
     pixel_sizes = set()
     stack_cache = {}
-    for index, (path_value, image_index, pixel_size) in enumerate(zip(
+    for path_value, image_index, pixel_size in zip(
         dataset["blob/path"],
         dataset["blob/idx"],
         dataset["blob/psize_A"],
         strict=True,
-    )):
+    ):
         path = _resolve_project_path(project, path_value)
         if path not in stack_cache:
             _, stack_cache[path] = mrc.read(path)
-        classes[index + 1] = np.asarray(
+        class_number = int(image_index) + 1
+        if class_number in classes:
+            raise ValueError(
+                f"source Class Number {class_number} occurs more than once"
+            )
+        classes[class_number] = np.asarray(
             stack_cache[path][int(image_index)], dtype=np.float32
         )
         pixel_sizes.add(float(pixel_size))

@@ -1,8 +1,10 @@
 import numpy as np
+from matplotlib.text import Text
 
 from cryosparc_2d_projection.axis_presentation import (
     AXIS_RESULT_COLUMNS,
     AxisResultPanelRow,
+    ExactAxisResultPanelRow,
     apply_axis_display_roll,
     create_axis_result_figure,
     parse_axis_rolls,
@@ -45,6 +47,52 @@ def test_axis_result_figure_has_exactly_five_columns_in_approved_order():
     assert len(figure.axes) == 5
     assert tuple(axis.get_title() for axis in figure.axes) == AXIS_RESULT_COLUMNS
     assert all(axis.images[0].get_array().shape[:2] == (9, 9) for axis in figure.axes)
+
+
+def test_axis_result_row_label_reports_family_rank_class_and_scores_outside_panels():
+    panel = _marker_panel()
+    row = AxisResultPanelRow(
+        family_name="5fold",
+        rank=2,
+        class_number=21,
+        axis_aligned_class=panel,
+        near_axis_projection=panel,
+        exact_axis_projection=panel,
+        near_axis_view=panel,
+        exact_axis_view=panel,
+        axis_class_score=0.87321,
+        near_axis_score=0.88104,
+    )
+
+    figure = create_axis_result_figure([row])
+
+    label = next(
+        text
+        for text in figure.findobj(Text)
+        if text.get_text()
+        == "5fold · Rank 2 · Class 21 · Score 0.8732 · Near 0.8810"
+    )
+    assert label.axes is None
+    assert all(label not in axis.texts for axis in figure.axes)
+
+
+def test_exact_axis_result_row_label_omits_near_score():
+    panel = _marker_panel()
+    row = ExactAxisResultPanelRow(
+        family_name="3fold",
+        rank=1,
+        class_number=8,
+        class_average=panel,
+        exact_matched_projection=panel,
+        exact_axis_view=panel,
+        axis_class_score=0.76543,
+    )
+
+    figure = create_axis_result_figure([row])
+
+    labels = {text.get_text() for text in figure.findobj(Text)}
+    assert "3fold · Rank 1 · Class 8 · Score 0.7654" in labels
+    assert not any("Near" in label for label in labels)
 
 
 def test_repeatable_axis_roll_values_are_parsed_per_family():

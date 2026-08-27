@@ -28,6 +28,10 @@ _Avoid_: Raw array orientation, arbitrary display flip
 A presentation-only image attached to a registered CryoSPARC output card. The Matched Projection output uses the lowest Class Number at its native pixel dimensions, in CryoSPARC Display Orientation, without labels or axes. Thumbnail generation and upload do not alter scientific output data, and an upload failure is reported without failing the job.
 _Avoid_: Matched Projection data, Event Log preview
 
+**Axis Search Dashboard Preview**:
+A presentation-only summary attached to both the dedicated axis-search preview output card and the job tile, whose underlying dataset contains the aligned classes in displayed order. It shows the first preview page with each result row labelled outside its scientific image panels by Axis Family, family-local rank, Class Number, four-decimal Axis Class Score, and optional four-decimal Near-Axis score. Results are grouped 2fold, 3fold, then 5fold and ranked within each family; the same class remains visible in every matching family. Upload failure is warned without failing completed scientific outputs.
+_Avoid_: CryoSPARC Output Thumbnail, scientific output data, complete Event Log preview
+
 **Camera View Render**:
 An orthographic 3D isosurface rendering of the Rendering Map observed at the exact Class Camera Orientation.
 _Avoid_: Projection, voxel scatter, 3D projection
@@ -61,7 +65,7 @@ A visible Class Result whose Match Confidence does not meet the reporting thresh
 _Avoid_: Rejected class, failed class
 
 **Class Number**:
-The one-based class identifier shown in the CryoSPARC UI and exposed to users for filtering and filenames.
+The one-based source class identifier shown in the CryoSPARC UI and preserved when a selected subset is reordered. It is not the selected input row position.
 _Avoid_: Zero-based class ID
 
 **Handedness Warning**:
