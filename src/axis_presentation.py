@@ -30,6 +30,7 @@ class AxisResultLabel:
     class_number: int
     axis_class_score: float
     near_axis_score: float | None = None
+    near_axis_angle_degrees: float | None = None
 
     def text(self):
         result = (
@@ -38,6 +39,10 @@ class AxisResultLabel:
         )
         if self.near_axis_score is not None:
             result += f" · Near {self.near_axis_score:.4f}"
+        if self.near_axis_angle_degrees is not None:
+            result += (
+                f" · Near-Axis Angle {self.near_axis_angle_degrees:.3f}°"
+            )
         return result
 
 

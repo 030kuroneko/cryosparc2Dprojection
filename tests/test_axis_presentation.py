@@ -62,6 +62,7 @@ def test_axis_result_row_label_reports_family_rank_class_and_scores_outside_pane
             class_number=21,
             axis_class_score=0.87321,
             near_axis_score=0.88104,
+            near_axis_angle_degrees=3.257,
         ),
         axis_aligned_class=panel,
         near_axis_projection=panel,
@@ -76,7 +77,10 @@ def test_axis_result_row_label_reports_family_rank_class_and_scores_outside_pane
         text
         for text in figure.findobj(Text)
         if text.get_text()
-        == "5fold · Rank 2 · Class 21 · Score 0.8732 · Near 0.8810"
+        == (
+            "5fold · Rank 2 · Class 21 · Score 0.8732 "
+            "· Near 0.8810 · Near-Axis Angle 3.257°"
+        )
     )
     assert label.axes is None
     assert all(label not in axis.texts for axis in figure.axes)

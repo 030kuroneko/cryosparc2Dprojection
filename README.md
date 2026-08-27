@@ -50,7 +50,8 @@ With `--refine-near-axis`, the job additionally publishes:
 The job writes `axis_search_results.json`, three-column Exact-Axis PNG/Event
 Log previews, and no interactive axis-volume output. Each preview row labels
 the Axis Family, family-local rank, original CryoSPARC Class Number, Axis Class
-Score, and optional Near-Axis score outside the scientific image panels. The
+Score, and optional Near-Axis score and angular distance outside the scientific
+image panels. The
 first page is also the Dashboard job tile and `axis_search_preview` output
 image; all pages remain in the Event Log. Enabling Near-Axis Refinement expands
 the preview to five columns. Preview upload failure is warned without failing

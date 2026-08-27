@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from cryosparc import mrc
 from cryosparc.dataset import Dataset
+from matplotlib.text import Text
 
 from cryosparc_2d_projection.axis_cli import build_parser, main
 from cryosparc_2d_projection.axis_external_job import (
@@ -557,6 +558,11 @@ def test_axis_cli_enables_near_axis_refinement_only_when_requested(tmp_path):
         "Exact-Axis Camera View",
     ]
     assert len(job.plots[0][0].axes) == 5
+    labels = {text.get_text() for text in job.plots[0][0].findobj(Text)}
+    expected_angle = metadata["rows"][0]["angular_distance_degrees"]
+    assert any(
+        f"Near-Axis Angle {expected_angle:.3f}°" in label for label in labels
+    )
 
 
 def test_presentation_overrides_do_not_change_scores_or_orientations(tmp_path):

@@ -29,7 +29,7 @@ A presentation-only image attached to a registered CryoSPARC output card. The Ma
 _Avoid_: Matched Projection data, Event Log preview
 
 **Axis Search Dashboard Preview**:
-A presentation-only summary attached to both the dedicated axis-search preview output card and the job tile, whose underlying dataset contains the aligned classes in displayed order. It shows the first preview page with each result row labelled outside its scientific image panels by Axis Family, family-local rank, Class Number, four-decimal Axis Class Score, and optional four-decimal Near-Axis score. Results are grouped 2fold, 3fold, then 5fold and ranked within each family; the same class remains visible in every matching family. Upload failure is warned without failing completed scientific outputs.
+A presentation-only summary attached to both the dedicated axis-search preview output card and the job tile, whose underlying dataset contains the aligned classes in displayed order. It shows the first preview page with each result row labelled outside its scientific image panels by Axis Family, family-local rank, Class Number, four-decimal Axis Class Score, and optional four-decimal Near-Axis score plus three-decimal Near-Axis angular distance in degrees. Results are grouped 2fold, 3fold, then 5fold and ranked within each family; the same class remains visible in every matching family. Upload failure is warned without failing completed scientific outputs.
 _Avoid_: CryoSPARC Output Thumbnail, scientific output data, complete Event Log preview
 
 **Camera View Render**:

@@ -418,6 +418,9 @@ def run_axis_search_job(
                             class_number=candidate.class_number,
                             axis_class_score=candidate.exact_score,
                             near_axis_score=refined.refined_score,
+                            near_axis_angle_degrees=(
+                                refined.angular_distance_degrees
+                            ),
                         ),
                         axis_aligned_class=np.flipud(candidate.raw_class),
                         near_axis_projection=np.flipud(
