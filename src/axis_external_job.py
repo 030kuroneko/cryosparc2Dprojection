@@ -1,12 +1,9 @@
-"""Supported CryoSPARC External Job boundary for Symmetry-Axis Search."""
+"""Symmetry-Axis Search workflow using the supported External Job adapter."""
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 from time import monotonic
 
 import numpy as np
-from cryosparc import mrc
 
 from cryosparc_2d_projection.axis_search import (
     AxisProximityConfig,
@@ -23,12 +20,13 @@ from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
 )
+from cryosparc_2d_projection.external_job_adapter import (
+    CryoSPARCExternalJobAdapter,
+    ExternalJobSource,
+)
 
 
-@dataclass(frozen=True)
-class AxisSourceOutput:
-    job_uid: str
-    output_name: str
+AxisSourceOutput = ExternalJobSource
 
 
 def run_axis_search_job(
@@ -57,28 +55,20 @@ def run_axis_search_job(
     axis_rolls = dict(axis_rolls or {})
     comparison_options = comparison_options or ComparisonRenderOptions()
     render_options = render_options or ClassRenderOptions()
-    job = project.create_external_job(
+    adapter = CryoSPARCExternalJobAdapter(
+        project,
         workspace_uid,
         title="Symmetry-Axis Class Search (CryoSPARC 5.0.6)",
     )
-    _add_input(
-        job,
-        name="templates",
-        type="template",
-        slots=["blob"],
-        source=templates_source,
+    adapter.add_template_input(
+        "templates",
+        templates_source,
         title="Selected 2D class averages",
     )
-    _add_input(
-        job,
-        name="volume",
-        type="volume",
-        slots=(
-            ["map", "map_sharp"]
-            if render_options.map_name == "sharpened"
-            else ["map"]
-        ),
-        source=volume_source,
+    adapter.add_volume_input(
+        "volume",
+        volume_source,
+        rendering_map=render_options.map_name,
         title="Unsharpened Matching Map",
     )
     output_names = [
@@ -98,54 +88,50 @@ def run_axis_search_job(
             ]
         )
     for name in output_names:
-        job.add_output(
-            type="template",
-            name=name,
-            slots=["blob"],
-            title=name.replace("_", " ").title(),
-        )
+        adapter.add_template_output(name, title=name.replace("_", " ").title())
 
-    with job.run():
+    with adapter.run():
         run_started_at = monotonic()
         timings = {}
         _safe_status(
-            job,
+            adapter,
             "Axis Search stage: stage=input-loading status=started",
             status_callback,
         )
         stage_started_at = monotonic()
-        classes, class_pixel_size_A = _load_templates(
-            project, job.load_input("templates")
+        templates = adapter.read_template_stack("templates")
+        classes = {
+            class_number: template.image
+            for class_number, template in templates.class_averages.items()
+        }
+        # Axis Search reports one-based Class Numbers while Dataset blob indices
+        # are zero-based source indices.
+        classes = {source_index + 1: image for source_index, image in classes.items()}
+        class_pixel_size_A = templates.pixel_size_A
+        volume_input = adapter.read_volume(
+            "volume", rendering_map=render_options.map_name
         )
-        volume_input = job.load_input("volume")
-        volume_path = _resolve_project_path(project, volume_input["map/path"][0])
-        _, matching_map = mrc.read(volume_path)
-        map_pixel_size_A = float(volume_input["map/psize_A"][0])
-        rendering_slot = (
-            "map_sharp" if render_options.map_name == "sharpened" else "map"
-        )
-        rendering_path = _resolve_project_path(
-            project, volume_input[f"{rendering_slot}/path"][0]
-        )
-        _, rendering_map = mrc.read(rendering_path)
+        matching_map = volume_input.matching_map
+        map_pixel_size_A = volume_input.matching_pixel_size_A
+        rendering_map = volume_input.rendering_map
         timings["input-loading"] = {
             "elapsed_seconds": monotonic() - stage_started_at
         }
         _safe_status(
-            job,
+            adapter,
             "Axis Search stage: stage=input-loading status=completed "
             f"elapsed={timings['input-loading']['elapsed_seconds']:.3f}s",
             status_callback,
         )
         _safe_status(
-            job,
+            adapter,
             "Axis Search stage: stage=exact-ranking status=started "
             f"classes={len(classes)} search_max_size={config.search_max_size}",
             status_callback,
         )
         stage_started_at = monotonic()
         progress_reporter = _AxisProgressReporter(
-            job,
+            adapter,
             status_callback=status_callback,
             warning_callback=warning_callback,
             clock=progress_clock,
@@ -164,7 +150,7 @@ def run_axis_search_job(
             )
         except Exception as error:
             _safe_status(
-                job,
+                adapter,
                 "Axis Search stage: stage=exact-ranking status=failed "
                 f"{progress_reporter.context()} "
                 f"elapsed={monotonic() - stage_started_at:.3f}s "
@@ -176,7 +162,7 @@ def run_axis_search_job(
             "elapsed_seconds": monotonic() - stage_started_at
         }
         _safe_status(
-            job,
+            adapter,
             "Axis Search stage: stage=exact-ranking status=completed "
             f"elapsed={timings['exact-ranking']['elapsed_seconds']:.3f}s",
             status_callback,
@@ -184,7 +170,7 @@ def run_axis_search_job(
         refinement = None
         if refine_near_axis:
             _safe_status(
-                job,
+                adapter,
                 "Axis Search stage: stage=near-axis-refinement status=started",
                 status_callback,
             )
@@ -200,7 +186,7 @@ def run_axis_search_job(
                 )
             except Exception as error:
                 _safe_status(
-                    job,
+                    adapter,
                     "Axis Search stage: stage=near-axis-refinement status=failed "
                     f"{progress_reporter.context()} "
                     f"elapsed={monotonic() - stage_started_at:.3f}s "
@@ -212,7 +198,7 @@ def run_axis_search_job(
                 "elapsed_seconds": monotonic() - stage_started_at
             }
             _safe_status(
-                job,
+                adapter,
                 "Axis Search stage: stage=near-axis-refinement status=completed "
                 f"elapsed={timings['near-axis-refinement']['elapsed_seconds']:.3f}s",
                 status_callback,
@@ -220,15 +206,15 @@ def run_axis_search_job(
         def report_rendering_event(event):
             if event.code is AxisResultRenderingEventCode.RESULT_RENDERING_STARTED:
                 _safe_status(
-                    job,
+                    adapter,
                     "Axis Search stage: stage=result-rendering status=started",
                     status_callback,
                 )
             elif event.code is AxisResultRenderingEventCode.SURFACE_SAMPLING:
-                _safe_status(job, event.message, status_callback)
+                _safe_status(adapter, event.message, status_callback)
             elif event.code is AxisResultRenderingEventCode.CANDIDATE_COMPLETED:
                 _safe_status(
-                    job,
+                    adapter,
                     "Result Rendering progress: "
                     f"family={event.family_name} class={event.class_number} "
                     "status=completed",
@@ -236,25 +222,25 @@ def run_axis_search_job(
                 )
             elif event.code is AxisResultRenderingEventCode.OUTPUT_WRITING_STARTED:
                 _safe_status(
-                    job,
+                    adapter,
                     "Axis Search stage: stage=output-writing status=started",
                     status_callback,
                 )
             elif event.code is AxisResultRenderingEventCode.OUTPUT_WRITING_COMPLETED:
                 _safe_status(
-                    job,
+                    adapter,
                     "Axis Search stage: stage=output-writing status=completed",
                     status_callback,
                 )
 
         def report_rendering_warning(event):
-            _safe_warning(job, event.message, warning_callback)
+            _safe_warning(adapter, event.message, warning_callback)
 
         rendering_started_at = monotonic()
         try:
             result = render_axis_search_results(
                 AxisResultRenderingRequest(
-                    output_directory=_resource_directory(job),
+                    output_directory=adapter.resource_directory,
                     search_result=search_result,
                     refinement=refinement,
                     matching_map=matching_map,
@@ -275,7 +261,7 @@ def run_axis_search_job(
             )
         except Exception as error:
             _safe_status(
-                job,
+                adapter,
                 "Axis Search stage: stage=result-rendering status=failed "
                 f"elapsed={monotonic() - rendering_started_at:.3f}s "
                 f"error={type(error).__name__}: {error}",
@@ -284,28 +270,28 @@ def run_axis_search_job(
             raise
         artifact = result.artifact
         _safe_status(
-            job,
+            adapter,
             "Axis Search stage: stage=result-rendering status=completed "
             f"elapsed={artifact['timings']['result-rendering']['elapsed_seconds']:.3f}s",
             status_callback,
         )
         for name, stack in result.stacks.items():
-            _save_template_stack(
-                job,
+            adapter.stage_template_stack(
                 name,
                 stack.filename,
                 stack.data,
                 pixel_size_A=stack.pixel_size_A,
             )
+        adapter.publish()
         for page_number, page in enumerate(result.preview_pages, start=1):
-            job.log_plot(
+            adapter.log_plot(
                 page,
                 f"Symmetry-Axis Search preview {page_number}/{len(result.preview_pages)}",
                 formats=["png"],
                 savefig_kw={"dpi": comparison_options.dpi, "bbox_inches": "tight"},
             )
         _attach_axis_dashboard_preview(
-            job,
+            adapter,
             result.preview_path,
             status_callback=status_callback,
         )
@@ -321,7 +307,7 @@ def run_axis_search_job(
                 else f"{row['angular_distance_degrees']:.3f}"
             )
             _safe_status(
-                job,
+                adapter,
                 "Axis Search row: "
                 f"family={row['family']} rank={row['rank']} "
                 f"class={row['class_number']} "
@@ -332,12 +318,12 @@ def run_axis_search_job(
                 status_callback,
             )
             _safe_job_log(
-                job,
+                adapter,
                 "Axis Search row JSON: "
                 + json.dumps(row, sort_keys=True, separators=(",", ":")),
             )
         _safe_status(
-            job,
+            adapter,
             f"Ranked {len(classes)} classes across "
             f"{len(search_result.families)} Axis Families.",
             status_callback,
@@ -433,78 +419,21 @@ def _safe_warning(job, message, callback):
     _safe_status(job, message, callback)
 
 
-def _attach_axis_dashboard_preview(job, preview_path, *, status_callback=None):
-    for target, attach in (
-        (
-            "output card",
-            lambda: job.set_output_image("axis_search_preview", preview_path),
+def _attach_axis_dashboard_preview(adapter, preview_path, *, status_callback=None):
+    adapter.attach_output_preview(
+        "axis_search_preview",
+        preview_path,
+        warning_callback=status_callback,
+        warning_formatter=lambda error: (
+            "WARNING: Could not attach Axis Search Dashboard Preview "
+            f"to output card; {type(error).__name__}: {error}"
         ),
-        ("job tile", lambda: job.set_tile_image(preview_path)),
-    ):
-        try:
-            attach()
-        except Exception as error:
-            _safe_warning(
-                job,
-                "WARNING: Could not attach Axis Search Dashboard Preview "
-                f"to {target}; {type(error).__name__}: {error}",
-                status_callback,
-            )
-
-
-def _load_templates(project, dataset):
-    classes = {}
-    pixel_sizes = set()
-    stack_cache = {}
-    for path_value, image_index, pixel_size in zip(
-        dataset["blob/path"],
-        dataset["blob/idx"],
-        dataset["blob/psize_A"],
-        strict=True,
-    ):
-        path = _resolve_project_path(project, path_value)
-        if path not in stack_cache:
-            _, stack_cache[path] = mrc.read(path)
-        class_number = int(image_index) + 1
-        if class_number in classes:
-            raise ValueError(
-                f"source Class Number {class_number} occurs more than once"
-            )
-        classes[class_number] = np.asarray(
-            stack_cache[path][int(image_index)], dtype=np.float32
-        )
-        pixel_sizes.add(float(pixel_size))
-    if not classes:
-        raise ValueError("Select 2D templates input is empty")
-    if len(pixel_sizes) != 1:
-        raise ValueError("all class averages must share one native pixel size")
-    return classes, pixel_sizes.pop()
-
-
-def _add_input(job, *, name, type, slots, source, title):
-    job.add_input(type=type, name=name, min=1, max=1, slots=slots, title=title)
-    job.connect(name, source.job_uid, source.output_name)
-
-
-def _save_template_stack(job, name, filename, stack, *, pixel_size_A):
-    output = job.alloc_output(name, len(stack))
-    output["blob/path"][:] = f">{job.uid}/{filename}"
-    output["blob/idx"][:] = np.arange(len(stack))
-    output["blob/shape"][:] = stack.shape[1:]
-    output["blob/psize_A"][:] = pixel_size_A
-    job.save_output(name, output)
-
-
-def _resource_directory(resource):
-    directory = resource.dir
-    directory = directory() if callable(directory) else directory
-    return Path(directory)
-
-
-def _resolve_project_path(project, path):
-    if isinstance(path, bytes):
-        path = path.decode()
-    path = Path(str(path).removeprefix(">"))
-    if path.is_absolute():
-        return path
-    return _resource_directory(project) / path
+    )
+    adapter.attach_tile_preview(
+        preview_path,
+        warning_callback=status_callback,
+        warning_formatter=lambda error: (
+            "WARNING: Could not attach Axis Search Dashboard Preview "
+            f"to job tile; {type(error).__name__}: {error}"
+        ),
+    )

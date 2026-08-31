@@ -1,9 +1,6 @@
-from dataclasses import dataclass
 import json
-from pathlib import Path
 
 import numpy as np
-from cryosparc import mrc
 
 from cryosparc_2d_projection.class_poses import analyze_class_orientations
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
@@ -31,25 +28,19 @@ from cryosparc_2d_projection.viewer import (
     write_matched_projection_thumbnail,
     write_chimerax_bundle,
 )
-
-
-TARGET_CRYOSPARC_VERSION = "5.0.6"
+from cryosparc_2d_projection.external_job_adapter import (
+    CryoSPARCExternalJobAdapter,
+    ExternalJobSource,
+    TARGET_CRYOSPARC_VERSION,
+    read_template_stack_dataset,
+)
 
 
 class NativeReprojectionError(RuntimeError):
     """A native Matched Projection could not be generated for a class."""
 
 
-@dataclass(frozen=True)
-class SourceOutput:
-    job_uid: str
-    output_name: str
-
-
-@dataclass(frozen=True)
-class LoadedClassAverage:
-    image: np.ndarray
-    pixel_size: float
+SourceOutput = ExternalJobSource
 
 
 def run_external_orientation_job(
@@ -74,79 +65,51 @@ def run_external_orientation_job(
         diagnostic_score_config or BandLimitedScoreConfig()
     )
     comparison_options = comparison_options or ComparisonRenderOptions()
-    rendering_slot = (
-        "map_sharp" if render_options.map_name == "sharpened" else "map"
-    )
-    job = project.create_external_job(
+    adapter = CryoSPARCExternalJobAdapter(
+        project,
         workspace_uid,
         title=f"2D Class Orientation (CryoSPARC {TARGET_CRYOSPARC_VERSION})",
     )
-    _add_and_connect_input(
-        job,
-        name="select_2d_templates",
-        type="template",
-        slots=["blob"],
-        source=select_templates_source,
+    adapter.add_template_input(
+        "select_2d_templates",
+        select_templates_source,
         title="Selected 2D class averages",
     )
-    _add_and_connect_input(
-        job,
-        name="select_2d_particles",
-        type="particle",
+    adapter.add_particle_input(
+        "select_2d_particles",
+        select_2d_source,
         slots=["alignments2D"],
-        source=select_2d_source,
         title="Select 2D particles",
     )
-    _add_and_connect_input(
-        job,
-        name="refinement_particles",
-        type="particle",
+    adapter.add_particle_input(
+        "refinement_particles",
+        refinement_source,
         slots=["alignments3D"],
-        source=refinement_source,
         title="NU or Local Refinement particles",
     )
-    _add_and_connect_input(
-        job,
-        name="refinement_volume",
-        type="volume",
-        slots=(
-            ["map", "map_sharp"]
-            if render_options.map_name == "sharpened"
-            else ["map"]
-        ),
-        source=volume_source,
+    adapter.add_volume_input(
+        "refinement_volume",
+        volume_source,
+        rendering_map=render_options.map_name,
         title="NU or Local Refinement volume",
     )
-    job.add_output(
-        type="template",
-        name="matched_projections",
-        slots=["blob"],
-        title="Matched class projections",
+    adapter.add_template_output(
+        "matched_projections", title="Matched class projections"
     )
-    job.add_output(
-        type="template",
-        name="search_projections",
-        slots=["blob"],
-        title="Bounded camera-search projections",
+    adapter.add_template_output(
+        "search_projections", title="Bounded camera-search projections"
     )
-    job.add_output(
-        type="volume",
-        name="rendering_map",
-        slots=["map"],
-        title="Rendering map",
-    )
+    adapter.add_volume_output("rendering_map", title="Rendering map")
     for class_number in interactive_class_numbers or ():
-        job.add_output(
-            type="volume",
-            name=f"class_{class_number:03d}_volume",
-            slots=["map"],
+        adapter.add_volume_output(
+            f"class_{class_number:03d}_volume",
             title=f"Class {class_number} interactive volume",
         )
 
-    with job.run():
+    with adapter.run():
         orientations = analyze_class_orientations(
-            job.load_input("select_2d_particles"),
-            job.load_input("refinement_particles"),
+            adapter.read_particles("select_2d_particles"),
+            adapter.read_particles("refinement_particles"),
             symmetry=symmetry,
         )
         resolved_presentation = comparison_options.resolve(
@@ -154,12 +117,12 @@ def run_external_orientation_job(
             requested_render_size=render_options.image_size,
         )
         for warning in resolved_presentation.warnings:
-            job.log(warning)
+            adapter.log(warning)
             if warning_callback is not None:
                 warning_callback(warning)
-        class_averages = _load_class_averages(
-            project, job.load_input("select_2d_templates")
-        )
+        class_averages = adapter.read_template_stack(
+            "select_2d_templates"
+        ).class_averages
         _validate_native_class_grids(class_averages, orientations)
         artifact = {
             "cryosparc_version": TARGET_CRYOSPARC_VERSION,
@@ -194,28 +157,27 @@ def run_external_orientation_job(
                 "warnings": list(resolved_presentation.warnings),
             },
         }
-        job_directory = Path(_directory_of(job))
+        job_directory = adapter.resource_directory
         output_path = job_directory / "class_orientations.json"
         output_path.write_text(json.dumps(artifact, indent=2) + "\n")
 
-        volume_input = job.load_input("refinement_volume")
-        volume_path = _resolve_project_path(project, volume_input["map/path"][0])
-        _, volume_data = mrc.read(volume_path)
-        pixel_size = float(volume_input["map/psize_A"][0])
-        rendering_volume_path = _resolve_project_path(
-            project, volume_input[f"{rendering_slot}/path"][0]
+        volume_input = adapter.read_volume(
+            "refinement_volume", rendering_map=render_options.map_name
         )
-        _, rendering_volume_data = mrc.read(rendering_volume_path)
-        rendering_pixel_size = float(
-            volume_input[f"{rendering_slot}/psize_A"][0]
+        volume_data = volume_input.matching_map
+        pixel_size = volume_input.matching_pixel_size_A
+        rendering_volume_path = volume_input.rendering_path
+        rendering_volume_data = volume_input.rendering_map
+        rendering_pixel_size = volume_input.rendering_pixel_size_A
+        adapter.stage_volume_source(
+            "rendering_map",
+            rendering_volume_path,
+            shape=rendering_volume_data.shape,
+            pixel_size_A=rendering_pixel_size,
+            dataset_path=volume_input.rendering_dataset_path,
         )
-        rendering_output = job.alloc_output("rendering_map", 1)
-        rendering_output["map/path"][:] = volume_input[f"{rendering_slot}/path"][0]
-        rendering_output["map/shape"][:] = rendering_volume_data.shape
-        rendering_output["map/psize_A"][:] = rendering_pixel_size
-        job.save_output("rendering_map", rendering_output)
-        select_particles = job.load_input("select_2d_particles")
-        refinement_particles = job.load_input("refinement_particles")
+        select_particles = adapter.read_particles("select_2d_particles")
+        refinement_particles = adapter.read_particles("refinement_particles")
         camera_results = {}
         native_projection_results = {}
         diagnostic_scores = {}
@@ -256,7 +218,7 @@ def run_external_orientation_job(
                     "the bounded Search Projection was not substituted. "
                     f"Cause: {error}"
                 )
-                job.log(str(failure))
+                adapter.log(str(failure))
                 raise failure from error
             diagnostic_scores[class_id] = (
                 compute_diagnostic_band_limited_score(
@@ -291,11 +253,11 @@ def run_external_orientation_job(
             "(mesh and plotting allocations excluded); "
             f"Camera View Render={resolved_presentation.effective_render_size} px."
         )
-        job.log(sampling_message)
+        adapter.log(sampling_message)
         if status_callback is not None:
             status_callback(sampling_message)
         for warning in sampling_grid.warnings:
-            job.log(warning)
+            adapter.log(warning)
             if warning_callback is not None:
                 warning_callback(warning)
         try:
@@ -305,11 +267,11 @@ def run_external_orientation_job(
                 sampling_grid=sampling_grid,
             )
         except SurfaceRenderMemoryError as error:
-            job.log(str(error))
+            adapter.log(str(error))
             raise
-        job.log(f"Surface Level: {surface.surface_level:.6g}")
+        adapter.log(f"Surface Level: {surface.surface_level:.6g}")
         if surface.warning:
-            job.log(surface.warning)
+            adapter.log(surface.warning)
         artifact["rendering"] = {
             "map": render_options.map_name,
             "surface_level": surface.surface_level,
@@ -390,7 +352,7 @@ def run_external_orientation_job(
                     background=render_options.background,
                 )
             except SurfaceRenderMemoryError as error:
-                job.log(str(error))
+                adapter.log(str(error))
                 raise
         write_chimerax_bundle(
             job_directory / "chimerax",
@@ -415,15 +377,17 @@ def run_external_orientation_job(
         first_class_id = sorted(orientations)[0]
         projection_pixel_size = class_averages[first_class_id].pixel_size
         search_projection_pixel_size = matching_grids[first_class_id].pixel_size
-        mrc.write(
-            job_directory / "class_projections.mrcs",
+        adapter.stage_template_stack(
+            "matched_projections",
+            "class_projections.mrcs",
             projections,
-            projection_pixel_size,
+            pixel_size_A=projection_pixel_size,
         )
-        mrc.write(
-            job_directory / "search_projections.mrcs",
+        adapter.stage_template_stack(
+            "search_projections",
+            "search_projections.mrcs",
             search_projections,
-            search_projection_pixel_size,
+            pixel_size_A=search_projection_pixel_size,
         )
         for class_number in interactive_class_numbers or ():
             class_id = class_number - 1
@@ -434,14 +398,13 @@ def run_external_orientation_job(
                 rendering_volume_data, camera_results[class_id].rotation_matrix
             ).astype(np.float32, copy=False)
             filename = f"{name}.mrc"
-            mrc.write(
-                job_directory / filename, rotated_volume, rendering_pixel_size
+            adapter.stage_volume(
+                name,
+                filename,
+                rotated_volume,
+                pixel_size_A=rendering_pixel_size,
             )
-            volume_output = job.alloc_output(name, 1)
-            volume_output["map/path"][:] = f">{job.uid}/{filename}"
-            volume_output["map/shape"][:] = rotated_volume.shape
-            volume_output["map/psize_A"][:] = rendering_pixel_size
-            job.save_output(name, volume_output)
+        adapter.publish()
         preview_pages = create_class_preview_pages(
             class_averages,
             projections,
@@ -468,37 +431,20 @@ def run_external_orientation_job(
                 / f"class_{class_id + 1:03d}_comparison.png",
                 dpi=comparison_options.dpi,
             )
-        projection_output = job.alloc_output("matched_projections", len(projections))
-        projection_output["blob/path"][:] = f">{job.uid}/class_projections.mrcs"
-        projection_output["blob/idx"][:] = np.arange(len(projections))
-        projection_output["blob/shape"][:] = projections.shape[1:]
-        projection_output["blob/psize_A"][:] = projection_pixel_size
-        job.save_output("matched_projections", projection_output)
         thumbnail_path = write_matched_projection_thumbnail(
             job_directory / "renders" / "matched_projections_thumbnail.png",
             projections[0],
         )
-        try:
-            job.set_output_image("matched_projections", thumbnail_path)
-        except Exception as error:
-            job.log(
+        adapter.attach_output_preview(
+            "matched_projections",
+            thumbnail_path,
+            warning_formatter=lambda error: (
                 "WARNING: Could not attach matched_projections thumbnail; "
                 f"scientific output remains available. {error}"
-            )
-        search_projection_output = job.alloc_output(
-            "search_projections", len(search_projections)
+            ),
         )
-        search_projection_output["blob/path"][:] = (
-            f">{job.uid}/search_projections.mrcs"
-        )
-        search_projection_output["blob/idx"][:] = np.arange(
-            len(search_projections)
-        )
-        search_projection_output["blob/shape"][:] = search_projections.shape[1:]
-        search_projection_output["blob/psize_A"][:] = search_projection_pixel_size
-        job.save_output("search_projections", search_projection_output)
         for page_number, page in enumerate(preview_pages, start=1):
-            job.log_plot(
+            adapter.log_plot(
                 page,
                 f"Class camera preview {page_number}/{len(preview_pages)}",
                 formats=["png"],
@@ -508,31 +454,15 @@ def run_external_orientation_job(
                     "pad_inches": 0,
                 },
             )
-        job.log(
+        adapter.log(
             f"Analyzed {len(orientations)} 2D classes using overlapping particle UIDs."
         )
 
-    return job
+    return adapter.job
 
 
 def _load_class_averages(project, templates):
-    stacks = {}
-    class_averages = {}
-    for path, index, pixel_size in zip(
-        templates["blob/path"],
-        templates["blob/idx"],
-        templates["blob/psize_A"],
-        strict=True,
-    ):
-        resolved = _resolve_project_path(project, path)
-        if resolved not in stacks:
-            _, stacks[resolved] = mrc.read(resolved)
-        stack = stacks[resolved]
-        image = stack[int(index)] if stack.ndim == 3 else stack
-        class_averages[int(index)] = LoadedClassAverage(
-            image=np.asarray(image), pixel_size=float(pixel_size)
-        )
-    return class_averages
+    return read_template_stack_dataset(project, templates).class_averages
 
 
 def _validate_native_class_grids(class_averages, orientations):
@@ -587,29 +517,3 @@ def _matched_particle_poses(select_particles, refinement_particles, class_id):
         poses_3d.append(refinement_particles["alignments3D/pose"][refinement_row])
         poses_2d.append(select_particles["alignments2D/pose"][row])
     return np.asarray(poses_3d), np.asarray(poses_2d)
-
-
-def _add_and_connect_input(job, *, name, type, slots, source, title):
-    job.add_input(
-        type=type,
-        name=name,
-        min=1,
-        max=1,
-        slots=slots,
-        title=title,
-    )
-    job.connect(name, source.job_uid, source.output_name)
-
-
-def _directory_of(resource):
-    directory = resource.dir
-    return directory() if callable(directory) else directory
-
-
-def _resolve_project_path(project, path):
-    if isinstance(path, bytes):
-        path = path.decode()
-    path = Path(str(path).removeprefix(">"))
-    if path.is_absolute():
-        return path
-    return Path(_directory_of(project)) / path

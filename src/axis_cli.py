@@ -3,10 +3,8 @@
 import argparse
 import sys
 
-from cryosparc_2d_projection.axis_external_job import (
-    AxisSourceOutput,
-    run_axis_search_job,
-)
+from cryosparc_2d_projection.axis_external_job import run_axis_search_job
+from cryosparc_2d_projection.external_job_adapter import ExternalJobSource
 from cryosparc_2d_projection.axis_presentation import parse_axis_rolls
 from cryosparc_2d_projection.axis_registry import get_axis_family
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
@@ -81,8 +79,8 @@ def main(argv=None, *, client_factory=None):
     run_axis_search_job(
         project,
         args.workspace,
-        AxisSourceOutput(args.select_job, args.select_output),
-        AxisSourceOutput(args.volume_job, args.volume_output),
+        ExternalJobSource(args.select_job, args.select_output),
+        ExternalJobSource(args.volume_job, args.volume_output),
         families=args.axis_family,
         config=config,
         proximity_config=AxisProximityConfig(

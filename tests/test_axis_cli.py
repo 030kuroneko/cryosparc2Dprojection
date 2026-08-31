@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 import json
 
 import numpy as np
@@ -13,30 +12,32 @@ from cryosparc_2d_projection.axis_external_job import (
 )
 from cryosparc_2d_projection.axis_projection import project_axis_reference
 from cryosparc_2d_projection.axis_search import AxisClassScoreError, AxisSearchConfig
+from cryosparc_2d_projection.external_job_adapter import (
+    InMemoryExternalJobAdapter,
+)
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
 
-class AxisJob:
-    def __init__(self, directory, *, class_size=32):
-        self.uid = "J99"
-        self.directory = directory
-        directory.mkdir(parents=True, exist_ok=True)
-        volume = np.zeros((class_size, class_size, class_size), dtype=np.float32)
-        volume[
-            int(0.22 * class_size) : int(0.38 * class_size),
-            int(0.28 * class_size) : int(0.47 * class_size),
-            int(0.56 * class_size) : int(0.75 * class_size),
-        ] = 1.0
-        volume[
-            int(0.62 * class_size) : int(0.78 * class_size),
-            int(0.53 * class_size) : int(0.72 * class_size),
-            int(0.19 * class_size) : int(0.31 * class_size),
-        ] = 0.6
-        reference = project_axis_reference(volume, "2fold").projection
-        mrc.write(directory / "volume.mrc", volume, 1.0)
-        mrc.write(directory / "volume_sharp.mrc", volume[::-1].copy(), 1.0)
-        mrc.write(directory / "templates.mrcs", reference[None], 1.0)
-        self.datasets = {
+def _axis_job(directory, *, class_size=32, log_error=None):
+    directory.mkdir(parents=True, exist_ok=True)
+    volume = np.zeros((class_size, class_size, class_size), dtype=np.float32)
+    volume[
+        int(0.22 * class_size) : int(0.38 * class_size),
+        int(0.28 * class_size) : int(0.47 * class_size),
+        int(0.56 * class_size) : int(0.75 * class_size),
+    ] = 1.0
+    volume[
+        int(0.62 * class_size) : int(0.78 * class_size),
+        int(0.53 * class_size) : int(0.72 * class_size),
+        int(0.19 * class_size) : int(0.31 * class_size),
+    ] = 0.6
+    reference = project_axis_reference(volume, "2fold").projection
+    mrc.write(directory / "volume.mrc", volume, 1.0)
+    mrc.write(directory / "volume_sharp.mrc", volume[::-1].copy(), 1.0)
+    mrc.write(directory / "templates.mrcs", reference[None], 1.0)
+    return InMemoryExternalJobAdapter(
+        directory,
+        {
             "templates": np.array(
                 [("templates.mrcs", 0, 1.0)],
                 dtype=[
@@ -54,69 +55,9 @@ class AxisJob:
                     ("map_sharp/psize_A", "f4"),
                 ],
             ),
-        }
-        self.inputs = []
-        self.outputs = []
-        self.saved = {}
-        self.plots = []
-        self.logs = []
-        self.output_images = {}
-        self.tile_images = []
-
-    def add_input(self, **spec):
-        self.inputs.append(spec)
-
-    def connect(self, *args):
-        pass
-
-    def add_output(self, **spec):
-        self.outputs.append(spec["name"])
-
-    def alloc_output(self, name, size):
-        return {
-            "blob/path": np.empty(size, dtype=object),
-            "blob/idx": np.zeros(size, dtype=np.int32),
-            "blob/shape": np.zeros((size, 2), dtype=np.int32),
-            "blob/psize_A": np.zeros(size, dtype=np.float32),
-        }
-
-    def save_output(self, name, dataset):
-        self.saved[name] = dataset
-
-    def load_input(self, name):
-        return self.datasets[name]
-
-    def run(self):
-        return nullcontext(self)
-
-    def dir(self):
-        return str(self.directory)
-
-    def log(self, message):
-        self.logs.append(message)
-
-    def log_plot(self, figure, text, formats, savefig_kw=None):
-        self.plots.append((figure, text))
-
-    def set_output_image(self, name, image, savefig_kw=None):
-        self.output_images[name] = image
-
-    def set_tile_image(self, image, savefig_kw=None):
-        self.tile_images.append(image)
-
-
-class AxisProject:
-    def __init__(self, job):
-        self.job = job
-        self.dir = job.directory
-
-    def create_external_job(self, workspace_uid, title):
-        return self.job
-
-
-class FailingLogAxisJob(AxisJob):
-    def log(self, message):
-        raise RuntimeError("Event Log is temporarily unavailable")
+        },
+        log_error=log_error,
+    )
 
 
 class AxisClient:
@@ -141,8 +82,8 @@ class AdvancingClock:
 
 
 def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
-    job = AxisJob(tmp_path)
-    client = AxisClient(AxisProject(job))
+    job = _axis_job(tmp_path)
+    client = AxisClient(job)
 
     exit_code = main(
         [
@@ -162,7 +103,8 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
 
     assert exit_code == 0
     assert {item["name"] for item in job.inputs} == {"templates", "volume"}
-    assert set(job.outputs) == {
+    output_names = {item["name"] for item in job.outputs}
+    assert output_names == {
         "axis_candidates_raw",
         "axis_candidates_aligned",
         "axis_exact_references",
@@ -170,7 +112,7 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
         "axis_exact_matched_projections",
         "axis_search_preview",
     }
-    assert set(job.saved) == set(job.outputs)
+    assert set(job.saved) == output_names
     metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
     assert len(job.plots) == 1
     assert job.output_images["axis_search_preview"]
@@ -240,11 +182,11 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
 
 
 def test_axis_search_preserves_source_class_number_from_blob_index(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
     _, source = mrc.read(tmp_path / "templates.mrcs")
     mrc.write(tmp_path / "templates.mrcs", np.repeat(source, 8, axis=0), 1.0)
     job.datasets["templates"]["blob/idx"][0] = 7
-    client = AxisClient(AxisProject(job))
+    client = AxisClient(job)
 
     exit_code = main(
         [
@@ -263,12 +205,12 @@ def test_axis_search_preserves_source_class_number_from_blob_index(tmp_path):
 
 
 def test_dashboard_preview_upload_failure_warns_without_failing_job(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
     job.set_output_image = lambda *args, **kwargs: (_ for _ in ()).throw(
         RuntimeError("preview upload unavailable")
     )
     job.set_tile_image = job.set_output_image
-    client = AxisClient(AxisProject(job))
+    client = AxisClient(job)
 
     exit_code = main(
         [
@@ -291,9 +233,9 @@ def test_dashboard_preview_upload_failure_warns_without_failing_job(tmp_path):
 
 
 def test_axis_cli_loads_templates_from_cryosparc_dataset(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
     job.datasets["templates"] = Dataset(job.datasets["templates"])
-    client = AxisClient(AxisProject(job))
+    client = AxisClient(job)
 
     exit_code = main(
         [
@@ -315,7 +257,10 @@ def test_axis_cli_loads_templates_from_cryosparc_dataset(tmp_path):
 
 
 def test_axis_search_completes_when_progress_logging_is_unavailable(tmp_path):
-    job = FailingLogAxisJob(tmp_path)
+    job = _axis_job(
+        tmp_path,
+        log_error=RuntimeError("Event Log is temporarily unavailable"),
+    )
 
     exit_code = main(
         [
@@ -329,7 +274,7 @@ def test_axis_search_completes_when_progress_logging_is_unavailable(tmp_path):
             "--render-size", "64",
             "--render-grid-size", "16",
         ],
-        client_factory=lambda url: AxisClient(AxisProject(job)),
+        client_factory=lambda url: AxisClient(job),
     )
 
     assert exit_code == 0
@@ -337,11 +282,11 @@ def test_axis_search_completes_when_progress_logging_is_unavailable(tmp_path):
 
 
 def test_axis_search_heartbeat_clock_is_injectable_without_a_cli_option(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
     messages = []
 
     run_axis_search_job(
-        AxisProject(job),
+        job,
         "W1",
         AxisSourceOutput("J10", "templates_selected"),
         AxisSourceOutput("J20", "volume"),
@@ -361,11 +306,11 @@ def test_axis_search_heartbeat_clock_is_injectable_without_a_cli_option(tmp_path
 
 
 def test_axis_search_reports_recovery_after_a_cooperative_progress_stall(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
     warnings = []
 
     run_axis_search_job(
-        AxisProject(job),
+        job,
         "W1",
         AxisSourceOutput("J10", "templates_selected"),
         AxisSourceOutput("J20", "volume"),
@@ -381,7 +326,7 @@ def test_axis_search_reports_recovery_after_a_cooperative_progress_stall(tmp_pat
 
 
 def test_axis_search_logs_the_active_stage_before_propagating_a_failure(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
     mrc.write(tmp_path / "templates.mrcs", np.ones((1, 32, 32), dtype=np.float32), 1.0)
     mrc.write(tmp_path / "volume.mrc", np.ones((32, 32, 32), dtype=np.float32), 1.0)
 
@@ -398,7 +343,7 @@ def test_axis_search_logs_the_active_stage_before_propagating_a_failure(tmp_path
                 "--render-size", "64",
                 "--render-grid-size", "16",
             ],
-            client_factory=lambda url: AxisClient(AxisProject(job)),
+            client_factory=lambda url: AxisClient(job),
         )
 
     assert any(
@@ -494,8 +439,8 @@ def test_axis_cli_rejects_removed_axis_families_option():
 
 
 def test_axis_cli_runs_with_comma_separated_axis_family_selection(tmp_path):
-    job = AxisJob(tmp_path)
-    client = AxisClient(AxisProject(job))
+    job = _axis_job(tmp_path)
+    client = AxisClient(job)
 
     exit_code = main(
         [
@@ -517,7 +462,7 @@ def test_axis_cli_runs_with_comma_separated_axis_family_selection(tmp_path):
 
 
 def test_axis_cli_enables_near_axis_refinement_only_when_requested(tmp_path):
-    job = AxisJob(tmp_path)
+    job = _axis_job(tmp_path)
 
     exit_code = main(
         [
@@ -535,7 +480,7 @@ def test_axis_cli_enables_near_axis_refinement_only_when_requested(tmp_path):
             "--tilt-refine-step", "1",
             "--refine-near-axis",
         ],
-        client_factory=lambda url: AxisClient(AxisProject(job)),
+        client_factory=lambda url: AxisClient(job),
     )
 
     assert exit_code == 0

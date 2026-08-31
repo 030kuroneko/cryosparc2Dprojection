@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 import json
 
 import numpy as np
@@ -11,6 +10,9 @@ from cryosparc_2d_projection.external_job import (
     _load_class_averages,
     run_external_orientation_job,
 )
+from cryosparc_2d_projection.external_job_adapter import (
+    InMemoryExternalJobAdapter,
+)
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     SurfaceRenderMemoryError,
@@ -19,84 +21,6 @@ from cryosparc_2d_projection.surface_render import (
 from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from PIL import Image
-
-
-class FakeExternalJob:
-    def __init__(self, directory, datasets, *, output_image_error=None):
-        self.uid = "J99"
-        self.directory = directory
-        self.datasets = datasets
-        self.inputs = []
-        self.connections = []
-        self.logs = []
-        self.plots = []
-        self.saved_outputs = {}
-        self.output_images = {}
-        self.output_image_error = output_image_error
-        self.outputs = []
-
-    def add_input(self, **spec):
-        self.inputs.append(spec)
-
-    def add_output(self, **spec):
-        if not spec.get("slots"):
-            raise ValueError(
-                "Must must provide slots=[...] argument with at least one slot"
-            )
-        self.outputs.append(spec)
-        return spec["name"]
-
-    def alloc_output(self, name, count):
-        if not isinstance(count, int):
-            return count.copy()
-        if name == "rendering_map" or name.startswith("class_"):
-            return {
-                "map/path": np.empty(count, dtype=object),
-                "map/shape": np.zeros((count, 3), dtype=np.int32),
-                "map/psize_A": np.zeros(count, dtype=np.float32),
-            }
-        return {
-            "blob/path": np.empty(count, dtype=object),
-            "blob/idx": np.zeros(count, dtype=np.int32),
-            "blob/shape": np.zeros((count, 2), dtype=np.int32),
-            "blob/psize_A": np.zeros(count, dtype=np.float32),
-        }
-
-    def save_output(self, name, dataset, image=None):
-        self.saved_outputs[name] = (dataset, image)
-
-    def set_output_image(self, name, image):
-        if self.output_image_error is not None:
-            raise self.output_image_error
-        self.output_images[name] = image
-
-    def connect(self, target_input, source_job_uid, source_output):
-        self.connections.append((target_input, source_job_uid, source_output))
-
-    def run(self):
-        return nullcontext(self)
-
-    def load_input(self, name):
-        return self.datasets[name]
-
-    def dir(self):
-        return str(self.directory)
-
-    def log(self, message):
-        self.logs.append(message)
-
-    def log_plot(self, figure, text, formats, savefig_kw=None):
-        self.plots.append((figure, text, formats, savefig_kw))
-
-
-class FakeProject:
-    def __init__(self, job):
-        self.job = job
-        self.created = None
-
-    def create_external_job(self, workspace_uid, title):
-        self.created = (workspace_uid, title)
-        return self.job
 
 
 def _native_grid_external_job(
@@ -188,7 +112,7 @@ def _native_grid_external_job(
         ],
     )
 
-    job = FakeExternalJob(
+    job = InMemoryExternalJobAdapter(
         tmp_path,
         {
             "select_2d_particles": select_2d,
@@ -197,9 +121,7 @@ def _native_grid_external_job(
             "refinement_volume": volume,
         },
     )
-    project = FakeProject(job)
-    project.dir = tmp_path
-    return project, job
+    return job, job
 
 
 def _inconsistent_native_box_external_job(tmp_path):
@@ -244,7 +166,7 @@ def _inconsistent_native_box_external_job(tmp_path):
 def test_external_job_rejects_symmetry_outside_v0_1_support_before_creating_job(
     tmp_path, symmetry
 ):
-    project = FakeProject(FakeExternalJob(tmp_path, {}))
+    project = InMemoryExternalJobAdapter(tmp_path, {})
 
     with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
         run_external_orientation_job(
@@ -321,7 +243,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
             ("map_sharp/psize_A", "f4"),
         ],
     )
-    job = FakeExternalJob(
+    job = InMemoryExternalJobAdapter(
         tmp_path,
         {
             "select_2d_particles": select_2d,
@@ -330,8 +252,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
             "refinement_volume": volume,
         },
     )
-    project = FakeProject(job)
-    project.dir = tmp_path
+    project = job
 
     run_external_orientation_job(
         project,

@@ -1,10 +1,8 @@
 import argparse
 import sys
 
-from cryosparc_2d_projection.external_job import (
-    SourceOutput,
-    run_external_orientation_job,
-)
+from cryosparc_2d_projection.external_job import run_external_orientation_job
+from cryosparc_2d_projection.external_job_adapter import ExternalJobSource
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
@@ -161,12 +159,14 @@ def main(argv=None, *, client_factory=None):
     run_external_orientation_job(
         project,
         workspace_uid=args.workspace,
-        select_2d_source=SourceOutput(args.select_job, args.select_output),
-        select_templates_source=SourceOutput(args.select_job, args.templates_output),
-        refinement_source=SourceOutput(
+        select_2d_source=ExternalJobSource(args.select_job, args.select_output),
+        select_templates_source=ExternalJobSource(
+            args.select_job, args.templates_output
+        ),
+        refinement_source=ExternalJobSource(
             args.refinement_job, args.refinement_particles_output
         ),
-        volume_source=SourceOutput(args.refinement_job, args.volume_output),
+        volume_source=ExternalJobSource(args.refinement_job, args.volume_output),
         symmetry=args.symmetry,
         interactive_class_numbers=args.classes or (),
         render_options=ClassRenderOptions(
