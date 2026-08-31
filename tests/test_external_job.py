@@ -7,11 +7,7 @@ import pytest
 from cryosparc_2d_projection.external_job import (
     NativeReprojectionError,
     SourceOutput,
-    _load_class_averages,
     run_external_orientation_job,
-)
-from cryosparc_2d_projection.external_job_adapter import (
-    InMemoryExternalJobBackend,
 )
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
@@ -21,6 +17,8 @@ from cryosparc_2d_projection.surface_render import (
 from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from PIL import Image
+
+from tests.external_job_backend import InMemoryExternalJobBackend
 
 
 def _native_grid_external_job(
@@ -180,28 +178,6 @@ def test_external_job_rejects_symmetry_outside_v0_1_support_before_creating_job(
         )
 
     assert project.created is None
-
-
-def test_selected_template_blob_indices_remain_original_class_ids(tmp_path):
-    stack = np.zeros((50, 3, 3), dtype=np.float32)
-    stack[10] = 10
-    stack[12] = 12
-    mrc.write(tmp_path / "templates.mrcs", stack, 1.5)
-    templates = np.array(
-        [("templates.mrcs", 10, 1.5), ("templates.mrcs", 12, 1.5)],
-        dtype=[
-            ("blob/path", "U128"),
-            ("blob/idx", "i4"),
-            ("blob/psize_A", "f4"),
-        ],
-    )
-    project = type("ProjectDirectory", (), {"dir": tmp_path})()
-
-    loaded = _load_class_averages(project, templates)
-
-    assert sorted(loaded) == [10, 12]
-    assert np.all(loaded[10].image == 10)
-    assert np.all(loaded[12].image == 12)
 
 
 def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):

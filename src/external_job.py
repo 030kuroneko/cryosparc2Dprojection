@@ -32,7 +32,6 @@ from cryosparc_2d_projection.external_job_adapter import (
     CryoSPARCExternalJobAdapter,
     ExternalJobSource,
     TARGET_CRYOSPARC_VERSION,
-    read_template_stack_dataset,
 )
 
 
@@ -459,10 +458,6 @@ def run_external_orientation_job(
         )
 
     return adapter.job
-
-
-def _load_class_averages(project, templates):
-    return read_template_stack_dataset(project, templates).class_averages
 
 
 def _validate_native_class_grids(class_averages, orientations):

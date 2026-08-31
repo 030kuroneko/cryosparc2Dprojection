@@ -12,10 +12,9 @@ from cryosparc_2d_projection.axis_external_job import (
 )
 from cryosparc_2d_projection.axis_projection import project_axis_reference
 from cryosparc_2d_projection.axis_search import AxisClassScoreError, AxisSearchConfig
-from cryosparc_2d_projection.external_job_adapter import (
-    InMemoryExternalJobBackend,
-)
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
+
+from tests.external_job_backend import InMemoryExternalJobBackend
 
 
 def _axis_job(directory, *, class_size=32, log_error=None):

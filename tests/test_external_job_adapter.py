@@ -3,7 +3,6 @@ from cryosparc_2d_projection.external_job_adapter import (
     CryoSPARCExternalJobAdapter,
     ExternalJobSource,
     ExternalJobPublicationError,
-    InMemoryExternalJobBackend,
     LoadedVolume,
     SourceOutput,
     TemplateStack,
@@ -12,6 +11,8 @@ from cryosparc_2d_projection.external_job_adapter import (
 import numpy as np
 import pytest
 from cryosparc import mrc
+
+from tests.external_job_backend import InMemoryExternalJobBackend
 
 
 def test_external_job_source_is_the_canonical_source_type():
@@ -28,12 +29,13 @@ def test_adapter_reads_template_stack_without_exposing_dataset_slots(tmp_path):
         [
             [[1, 2], [3, 4]],
             [[5, 6], [7, 8]],
+            [[9, 10], [11, 12]],
         ],
         dtype=np.float32,
     )
     mrc.write(tmp_path / "templates.mrcs", stack, 1.5)
     dataset = np.asarray(
-        [("templates.mrcs", 1, 1.5)],
+        [("templates.mrcs", 0, 1.5), ("templates.mrcs", 2, 1.5)],
         dtype=[
             ("blob/path", "U128"),
             ("blob/idx", "i4"),
@@ -55,8 +57,9 @@ def test_adapter_reads_template_stack_without_exposing_dataset_slots(tmp_path):
     templates = adapter.read_template_stack("templates")
 
     assert isinstance(templates, TemplateStack)
-    assert templates.class_averages[1].image.tolist() == [[5, 6], [7, 8]]
-    assert templates.class_averages[1].pixel_size_A == 1.5
+    assert sorted(templates.class_averages) == [0, 2]
+    assert templates.class_averages[2].image.tolist() == [[9, 10], [11, 12]]
+    assert templates.class_averages[2].pixel_size_A == 1.5
 
 
 def test_template_reader_preserves_last_duplicate_and_empty_input_behavior(tmp_path):
