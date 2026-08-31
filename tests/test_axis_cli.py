@@ -13,7 +13,7 @@ from cryosparc_2d_projection.axis_external_job import (
 from cryosparc_2d_projection.axis_projection import project_axis_reference
 from cryosparc_2d_projection.axis_search import AxisClassScoreError, AxisSearchConfig
 from cryosparc_2d_projection.external_job_adapter import (
-    InMemoryExternalJobAdapter,
+    InMemoryExternalJobBackend,
 )
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
@@ -35,7 +35,7 @@ def _axis_job(directory, *, class_size=32, log_error=None):
     mrc.write(directory / "volume.mrc", volume, 1.0)
     mrc.write(directory / "volume_sharp.mrc", volume[::-1].copy(), 1.0)
     mrc.write(directory / "templates.mrcs", reference[None], 1.0)
-    return InMemoryExternalJobAdapter(
+    return InMemoryExternalJobBackend(
         directory,
         {
             "templates": np.array(

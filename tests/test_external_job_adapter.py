@@ -1,8 +1,9 @@
 from cryosparc_2d_projection.external_job_adapter import (
     AxisSourceOutput,
+    CryoSPARCExternalJobAdapter,
     ExternalJobSource,
     ExternalJobPublicationError,
-    InMemoryExternalJobAdapter,
+    InMemoryExternalJobBackend,
     LoadedVolume,
     SourceOutput,
     TemplateStack,
@@ -56,7 +57,33 @@ def test_adapter_reads_template_stack_without_exposing_dataset_slots(tmp_path):
     assert isinstance(templates, TemplateStack)
     assert templates.class_averages[1].image.tolist() == [[5, 6], [7, 8]]
     assert templates.class_averages[1].pixel_size_A == 1.5
-    assert templates.images[1].tolist() == [[5, 6], [7, 8]]
+
+
+def test_template_reader_preserves_last_duplicate_and_empty_input_behavior(tmp_path):
+    first = np.ones((1, 2, 2), dtype=np.float32)
+    second = np.full((1, 2, 2), 2.0, dtype=np.float32)
+    mrc.write(tmp_path / "first.mrcs", first, 1.5)
+    mrc.write(tmp_path / "second.mrcs", second, 1.5)
+    dtype = [
+        ("blob/path", "U128"),
+        ("blob/idx", "i4"),
+        ("blob/psize_A", "f4"),
+    ]
+    datasets = {
+        "duplicates": np.array(
+            [("first.mrcs", 0, 1.5), ("second.mrcs", 0, 1.5)],
+            dtype=dtype,
+        ),
+        "empty": np.array([], dtype=dtype),
+    }
+    backend = InMemoryExternalJobBackend(tmp_path, datasets)
+    adapter = CryoSPARCExternalJobAdapter(backend, "W1", job=backend)
+
+    duplicates = adapter.read_template_stack("duplicates")
+    empty = adapter.read_template_stack("empty")
+
+    assert duplicates.class_averages[0].image.tolist() == [[2.0, 2.0], [2.0, 2.0]]
+    assert empty.class_averages == {}
 
 
 def test_adapter_reads_matching_and_selected_rendering_volume(tmp_path):
@@ -94,6 +121,35 @@ def test_adapter_reads_matching_and_selected_rendering_volume(tmp_path):
     assert volume.rendering_pixel_size_A == 2.0
     assert volume.matching_path == tmp_path / "matching.mrc"
     assert volume.rendering_path == tmp_path / "sharpened.mrc"
+
+
+def test_adapter_reads_typed_particle_alignments_without_exposing_slots(tmp_path):
+    selected = np.array(
+        [(101, 3, 0.25)],
+        dtype=[
+            ("uid", "u8"),
+            ("alignments2D/class", "i4"),
+            ("alignments2D/pose", "f8"),
+        ],
+    )
+    refined = np.array(
+        [(101, [0.1, 0.2, 0.3])],
+        dtype=[("uid", "u8"), ("alignments3D/pose", "f8", (3,))],
+    )
+    backend = InMemoryExternalJobBackend(
+        tmp_path,
+        {"selected": selected, "refined": refined},
+    )
+    adapter = CryoSPARCExternalJobAdapter(backend, "W1", job=backend)
+
+    alignments_2d = adapter.read_2d_particle_alignments("selected")
+    alignments_3d = adapter.read_3d_particle_alignments("refined")
+
+    assert alignments_2d.uids.tolist() == [101]
+    assert alignments_2d.class_ids.tolist() == [3]
+    assert alignments_2d.poses.tolist() == [0.25]
+    assert alignments_3d.uids.tolist() == [101]
+    assert alignments_3d.poses.tolist() == [[0.1, 0.2, 0.3]]
 
 
 def test_adapter_stages_template_output_before_publishing(tmp_path):
@@ -182,14 +238,15 @@ def test_adapter_publication_error_names_output_without_rollback(tmp_path):
 
 
 def test_shared_in_memory_adapter_exposes_one_backend_for_workflow_tests(tmp_path):
-    adapter = InMemoryExternalJobAdapter(tmp_path)
+    backend = InMemoryExternalJobBackend(tmp_path)
+    adapter = CryoSPARCExternalJobAdapter(backend, "W1", job=backend)
 
     adapter.add_template_output("projections", title="Projections")
     stack = np.zeros((1, 2, 2), dtype=np.float32)
     adapter.stage_template_stack("projections", "projections.mrcs", stack, pixel_size_A=1.0)
     adapter.publish()
 
-    assert adapter.saved["projections"]["blob/idx"].tolist() == [0]
-    assert adapter.saved_outputs["projections"][0]["blob/path"].tolist() == [
+    assert backend.saved["projections"]["blob/idx"].tolist() == [0]
+    assert backend.saved_outputs["projections"][0]["blob/path"].tolist() == [
         ">J99/projections.mrcs"
     ]

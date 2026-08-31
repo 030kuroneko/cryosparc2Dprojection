@@ -11,7 +11,7 @@ from cryosparc_2d_projection.external_job import (
     run_external_orientation_job,
 )
 from cryosparc_2d_projection.external_job_adapter import (
-    InMemoryExternalJobAdapter,
+    InMemoryExternalJobBackend,
 )
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
@@ -112,7 +112,7 @@ def _native_grid_external_job(
         ],
     )
 
-    job = InMemoryExternalJobAdapter(
+    job = InMemoryExternalJobBackend(
         tmp_path,
         {
             "select_2d_particles": select_2d,
@@ -166,7 +166,7 @@ def _inconsistent_native_box_external_job(tmp_path):
 def test_external_job_rejects_symmetry_outside_v0_1_support_before_creating_job(
     tmp_path, symmetry
 ):
-    project = InMemoryExternalJobAdapter(tmp_path, {})
+    project = InMemoryExternalJobBackend(tmp_path, {})
 
     with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
         run_external_orientation_job(
@@ -243,7 +243,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
             ("map_sharp/psize_A", "f4"),
         ],
     )
-    job = InMemoryExternalJobAdapter(
+    job = InMemoryExternalJobBackend(
         tmp_path,
         {
             "select_2d_particles": select_2d,

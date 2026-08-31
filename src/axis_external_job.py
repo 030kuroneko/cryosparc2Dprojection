@@ -99,7 +99,9 @@ def run_axis_search_job(
             status_callback,
         )
         stage_started_at = monotonic()
-        templates = adapter.read_template_stack("templates")
+        templates = adapter.read_template_stack(
+            "templates", require_unique=True, require_nonempty=True
+        )
         classes = {
             class_number: template.image
             for class_number, template in templates.class_averages.items()
@@ -399,24 +401,16 @@ class _AxisProgressReporter:
         )
 
 
-def _safe_status(job, message, callback):
-    _safe_job_log(job, message)
-    if callback is not None:
-        try:
-            callback(message)
-        except Exception:
-            pass
+def _safe_status(adapter, message, callback):
+    adapter.set_status(message, callback)
 
 
-def _safe_job_log(job, message):
-    try:
-        job.log(message)
-    except Exception:
-        pass
+def _safe_job_log(adapter, message):
+    adapter.safe_log(message)
 
 
-def _safe_warning(job, message, callback):
-    _safe_status(job, message, callback)
+def _safe_warning(adapter, message, callback):
+    adapter.set_warning(message, callback)
 
 
 def _attach_axis_dashboard_preview(adapter, preview_path, *, status_callback=None):

@@ -36,25 +36,11 @@ class LoadedClassAverage:
     source_index: int
     source_path: Path
 
-    @property
-    def pixel_size(self):
-        """Compatibility spelling used by the existing workflow code."""
-
-        return self.pixel_size_A
-
-
 @dataclass(frozen=True)
 class TemplateStack:
     """Typed template-stack data keyed by source blob index."""
 
     class_averages: dict[int, LoadedClassAverage]
-
-    @property
-    def images(self):
-        return {
-            source_index: template.image
-            for source_index, template in self.class_averages.items()
-        }
 
     @property
     def pixel_size_A(self):
@@ -66,14 +52,9 @@ class TemplateStack:
             raise ValueError("all class averages must share one native pixel size")
         return next(iter(pixel_sizes))
 
-    @property
-    def pixel_size(self):
-        return self.pixel_size_A
-
-
 @dataclass(frozen=True)
 class LoadedVolume:
-    """Matching and presentation volume data loaded from one input."""
+    """Matching Map and Rendering Map data loaded from one input."""
 
     matching_map: np.ndarray
     rendering_map: np.ndarray
@@ -84,21 +65,23 @@ class LoadedVolume:
     matching_dataset_path: str = ""
     rendering_dataset_path: str = ""
 
-    @property
-    def volume(self):
-        return self.matching_map
 
-    @property
-    def map(self):
-        return self.matching_map
 
-    @property
-    def pixel_size_A(self):
-        return self.matching_pixel_size_A
+@dataclass(frozen=True)
+class ParticleAlignments2D:
+    """Selected-particle values required by the orientation workflow."""
 
-    @property
-    def rendering_volume(self):
-        return self.rendering_map
+    uids: np.ndarray
+    class_ids: np.ndarray
+    poses: np.ndarray
+
+
+@dataclass(frozen=True)
+class ParticleAlignments3D:
+    """Refined-particle values required by the orientation workflow."""
+
+    uids: np.ndarray
+    poses: np.ndarray
 
 
 class ExternalJobPublicationError(RuntimeError):
@@ -157,11 +140,20 @@ class CryoSPARCExternalJobAdapter:
             title=title,
         )
 
-    def add_particle_input(self, name, source, *, slots, title):
+    def add_2d_particle_input(self, name, source, *, title):
         self._add_and_connect_input(
             name=name,
             type="particle",
-            slots=slots,
+            slots=["alignments2D"],
+            source=source,
+            title=title,
+        )
+
+    def add_3d_particle_input(self, name, source, *, title):
+        self._add_and_connect_input(
+            name=name,
+            type="particle",
+            slots=["alignments3D"],
             source=source,
             title=title,
         )
@@ -196,7 +188,9 @@ class CryoSPARCExternalJobAdapter:
             title=title,
         )
 
-    def read_template_stack(self, name):
+    def read_template_stack(
+        self, name, *, require_unique=False, require_nonempty=False
+    ):
         dataset = self.job.load_input(name)
         class_averages = {}
         stack_cache = {}
@@ -211,7 +205,7 @@ class CryoSPARCExternalJobAdapter:
                 _, stack_cache[source_path] = mrc.read(source_path)
             stack = stack_cache[source_path]
             source_index = int(image_index)
-            if source_index in class_averages:
+            if require_unique and source_index in class_averages:
                 raise ValueError(
                     f"source Class Number {source_index + 1} occurs more than once"
                 )
@@ -222,7 +216,7 @@ class CryoSPARCExternalJobAdapter:
                 source_index=source_index,
                 source_path=source_path,
             )
-        if not class_averages:
+        if require_nonempty and not class_averages:
             raise ValueError("Select 2D templates input is empty")
         return TemplateStack(class_averages)
 
@@ -251,8 +245,20 @@ class CryoSPARCExternalJobAdapter:
             rendering_dataset_path=rendering_dataset_path,
         )
 
-    def read_particles(self, name):
-        return self.job.load_input(name)
+    def read_2d_particle_alignments(self, name):
+        dataset = self.job.load_input(name)
+        return ParticleAlignments2D(
+            uids=np.asarray(dataset["uid"]),
+            class_ids=np.asarray(dataset["alignments2D/class"]),
+            poses=np.asarray(dataset["alignments2D/pose"]),
+        )
+
+    def read_3d_particle_alignments(self, name):
+        dataset = self.job.load_input(name)
+        return ParticleAlignments3D(
+            uids=np.asarray(dataset["uid"]),
+            poses=np.asarray(dataset["alignments3D/pose"]),
+        )
 
     def resolve_source_path(self, path):
         if isinstance(path, bytes):
@@ -496,12 +502,11 @@ def _path_text(path):
     return str(path)
 
 
-class InMemoryExternalJobAdapter:
-    """A shared in-memory External Job seam for workflow tests.
+class InMemoryExternalJobBackend:
+    """Shared in-memory project and job backend for adapter tests.
 
-    It intentionally implements the small project/backend surface consumed by
-    :class:`CryoSPARCExternalJobAdapter`, so both workflows can use one test
-    double without duplicating CryoSPARC Dataset mechanics.
+    It implements only the supported CryoSPARC surface consumed by
+    :class:`CryoSPARCExternalJobAdapter`.
     """
 
     def __init__(
@@ -533,14 +538,7 @@ class InMemoryExternalJobAdapter:
         self.output_images = {}
         self.tile_images = []
         self._output_kinds = {}
-        self.project = self
         self.created = None
-        self._adapter = CryoSPARCExternalJobAdapter(
-            self,
-            "W1",
-            title="In-memory External Job",
-            job=self,
-        )
 
     def create_external_job(self, workspace_uid, title):
         self.created = (workspace_uid, title)
@@ -604,60 +602,3 @@ class InMemoryExternalJobAdapter:
         if self.tile_image_error is not None:
             raise self.tile_image_error
         self.tile_images.append(image)
-
-    # Explicit high-level forwarding keeps this test double usable as a
-    # project while avoiding a magic __getattr__ bridge between two APIs.
-    @property
-    def resource_directory(self):
-        return self._adapter.resource_directory
-
-    def add_template_input(self, *args, **kwargs):
-        return self._adapter.add_template_input(*args, **kwargs)
-
-    def add_particle_input(self, *args, **kwargs):
-        return self._adapter.add_particle_input(*args, **kwargs)
-
-    def add_volume_input(self, *args, **kwargs):
-        return self._adapter.add_volume_input(*args, **kwargs)
-
-    def add_template_output(self, *args, **kwargs):
-        return self._adapter.add_template_output(*args, **kwargs)
-
-    def add_volume_output(self, *args, **kwargs):
-        return self._adapter.add_volume_output(*args, **kwargs)
-
-    def read_template_stack(self, *args, **kwargs):
-        return self._adapter.read_template_stack(*args, **kwargs)
-
-    def read_volume(self, *args, **kwargs):
-        return self._adapter.read_volume(*args, **kwargs)
-
-    def read_particles(self, *args, **kwargs):
-        return self._adapter.read_particles(*args, **kwargs)
-
-    def resolve_source_path(self, *args, **kwargs):
-        return self._adapter.resolve_source_path(*args, **kwargs)
-
-    def path(self, *args, **kwargs):
-        return self._adapter.path(*args, **kwargs)
-
-    def stage_template_stack(self, *args, **kwargs):
-        return self._adapter.stage_template_stack(*args, **kwargs)
-
-    def stage_volume(self, *args, **kwargs):
-        return self._adapter.stage_volume(*args, **kwargs)
-
-    def stage_volume_source(self, *args, **kwargs):
-        return self._adapter.stage_volume_source(*args, **kwargs)
-
-    def attach_output_preview(self, *args, **kwargs):
-        return self._adapter.attach_output_preview(*args, **kwargs)
-
-    def attach_tile_preview(self, *args, **kwargs):
-        return self._adapter.attach_tile_preview(*args, **kwargs)
-
-    def publish(self):
-        return self._adapter.publish()
-
-    def run_adapter(self):
-        return self._adapter.run()

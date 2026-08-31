@@ -21,21 +21,27 @@ class ClassOrientation:
 
 def match_class_poses(select_2d, refinement):
     """Group refinement poses by 2D class for particle UIDs present in both inputs."""
+    selected_uids = _particle_field(select_2d, "uids", "uid")
+    selected_classes = _particle_field(
+        select_2d, "class_ids", "alignments2D/class"
+    )
+    refinement_uids = _particle_field(refinement, "uids", "uid")
+    refinement_poses = _particle_field(
+        refinement, "poses", "alignments3D/pose"
+    )
     refinement_rows = {
-        int(uid): index for index, uid in enumerate(refinement["uid"])
+        int(uid): index for index, uid in enumerate(refinement_uids)
     }
     grouped = {}
 
-    for uid, class_id in zip(
-        select_2d["uid"], select_2d["alignments2D/class"], strict=True
-    ):
+    for uid, class_id in zip(selected_uids, selected_classes, strict=True):
         row_index = refinement_rows.get(int(uid))
         if row_index is None:
             continue
 
         group = grouped.setdefault(int(class_id), {"uids": [], "poses": []})
         group["uids"].append(uid)
-        group["poses"].append(refinement["alignments3D/pose"][row_index])
+        group["poses"].append(refinement_poses[row_index])
 
     return {
         class_id: ClassPoses(
@@ -73,6 +79,12 @@ def analyze_class_orientations(select_2d, refinement, *, symmetry="C1"):
         )
 
     return orientations
+
+
+def _particle_field(particles, attribute, dataset_field):
+    if hasattr(particles, attribute):
+        return getattr(particles, attribute)
+    return particles[dataset_field]
 
 
 def _fold_symmetry_equivalents(view_directions, symmetry):

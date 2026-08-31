@@ -75,16 +75,14 @@ def run_external_orientation_job(
         select_templates_source,
         title="Selected 2D class averages",
     )
-    adapter.add_particle_input(
+    adapter.add_2d_particle_input(
         "select_2d_particles",
         select_2d_source,
-        slots=["alignments2D"],
         title="Select 2D particles",
     )
-    adapter.add_particle_input(
+    adapter.add_3d_particle_input(
         "refinement_particles",
         refinement_source,
-        slots=["alignments3D"],
         title="NU or Local Refinement particles",
     )
     adapter.add_volume_input(
@@ -107,10 +105,14 @@ def run_external_orientation_job(
         )
 
     with adapter.run():
+        select_particles = adapter.read_2d_particle_alignments(
+            "select_2d_particles"
+        )
+        refinement_particles = adapter.read_3d_particle_alignments(
+            "refinement_particles"
+        )
         orientations = analyze_class_orientations(
-            adapter.read_particles("select_2d_particles"),
-            adapter.read_particles("refinement_particles"),
-            symmetry=symmetry,
+            select_particles, refinement_particles, symmetry=symmetry
         )
         resolved_presentation = comparison_options.resolve(
             class_count=len(orientations),
@@ -176,8 +178,6 @@ def run_external_orientation_job(
             pixel_size_A=rendering_pixel_size,
             dataset_path=volume_input.rendering_dataset_path,
         )
-        select_particles = adapter.read_particles("select_2d_particles")
-        refinement_particles = adapter.read_particles("refinement_particles")
         camera_results = {}
         native_projection_results = {}
         diagnostic_scores = {}
@@ -190,7 +190,7 @@ def run_external_orientation_job(
             matching_grid = prepare_matching_grid(
                 template.image,
                 volume_data,
-                class_pixel_size=template.pixel_size,
+                class_pixel_size=template.pixel_size_A,
                 volume_pixel_size=pixel_size,
                 max_size=128,
             )
@@ -208,7 +208,7 @@ def run_external_orientation_job(
                         template.image,
                         volume_data,
                         camera_results[class_id].rotation_matrix,
-                        class_pixel_size=template.pixel_size,
+                        class_pixel_size=template.pixel_size_A,
                         volume_pixel_size=pixel_size,
                     )
                 )
@@ -224,7 +224,7 @@ def run_external_orientation_job(
                 compute_diagnostic_band_limited_score(
                     template.image,
                     native_projection_results[class_id].matched_projection,
-                    pixel_size_A=template.pixel_size,
+                    pixel_size_A=template.pixel_size_A,
                     settings=diagnostic_score_config,
                 )
             )
@@ -335,7 +335,7 @@ def run_external_orientation_job(
                     class_entry["class_id"]
                 ].pixel_size,
                 "matching_box_size": int(template.image.shape[0]),
-                "matching_pixel_size_A": template.pixel_size,
+                "matching_pixel_size_A": template.pixel_size_A,
                 "search_evaluation_count": camera.search_evaluation_count,
                 "coordinate_convention": (
                     "right-handed Cartesian active rotation; "
@@ -375,7 +375,7 @@ def run_external_orientation_job(
             dtype=np.float32,
         )
         first_class_id = sorted(orientations)[0]
-        projection_pixel_size = class_averages[first_class_id].pixel_size
+        projection_pixel_size = class_averages[first_class_id].pixel_size_A
         search_projection_pixel_size = matching_grids[first_class_id].pixel_size
         adapter.stage_template_stack(
             "matched_projections",
@@ -479,7 +479,7 @@ def _validate_native_class_grids(class_averages, orientations):
         )
 
     pixel_sizes = {
-        class_id: class_averages[class_id].pixel_size
+        class_id: class_averages[class_id].pixel_size_A
         for class_id in sorted(orientations)
     }
     reference_pixel_size = next(iter(pixel_sizes.values()))
@@ -500,20 +500,20 @@ def _validate_native_class_grids(class_averages, orientations):
 
 def _matched_particle_poses(select_particles, refinement_particles, class_id):
     refinement_rows = {
-        int(uid): row for row, uid in enumerate(refinement_particles["uid"])
+        int(uid): row for row, uid in enumerate(refinement_particles.uids)
     }
     poses_3d = []
     poses_2d = []
     for row, (uid, particle_class) in enumerate(
         zip(
-            select_particles["uid"],
-            select_particles["alignments2D/class"],
+            select_particles.uids,
+            select_particles.class_ids,
             strict=True,
         )
     ):
         refinement_row = refinement_rows.get(int(uid))
         if int(particle_class) != class_id or refinement_row is None:
             continue
-        poses_3d.append(refinement_particles["alignments3D/pose"][refinement_row])
-        poses_2d.append(select_particles["alignments2D/pose"][row])
+        poses_3d.append(refinement_particles.poses[refinement_row])
+        poses_2d.append(select_particles.poses[row])
     return np.asarray(poses_3d), np.asarray(poses_2d)
