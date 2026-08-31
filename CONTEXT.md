@@ -125,5 +125,5 @@ The stage that searches a bounded orientation cone around an Exact-Axis Ranking 
 _Avoid_: Exact-Axis Ranking, global orientation search
 
 **Result Rendering**:
-The stage that turns completed axis-search candidates into camera views, template stacks, previews, and machine-readable results.
+The stage that turns all completed axis-search candidates from one Axis Search Run into one result set containing native-grid Matched Projections, Camera View Renders, template stacks, previews, and machine-readable results. The result set is complete only when every candidate appears consistently in all required outputs; Result Rendering never completes a partial result set. It completes before those results are published to CryoSPARC; failure to attach a presentation preview does not change completed scientific results.
 _Avoid_: Axis Search Run, orientation search

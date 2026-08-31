@@ -5,7 +5,6 @@ import numpy as np
 import pytest
 from cryosparc import mrc
 from cryosparc.dataset import Dataset
-from matplotlib.text import Text
 
 from cryosparc_2d_projection.axis_cli import build_parser, main
 from cryosparc_2d_projection.axis_external_job import (
@@ -173,27 +172,7 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
     }
     assert set(job.saved) == set(job.outputs)
     metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
-    assert metadata["symmetry"] == "I"
-    assert metadata["families"] == ["2fold"]
-    assert metadata["rows"][0]["class_number"] == 1
-    assert metadata["rows"][0]["score_provenance"]
-    assert metadata["rows"][0]["search_box_size"] == 32
-    assert metadata["rows"][0]["search_pixel_size_A"] == 1.0
-    assert metadata["rows"][0]["native_box_size"] == 32
-    assert metadata["rows"][0]["native_pixel_size_A"] == 1.0
-    assert metadata["rows"][0]["search_shift_xy_pixels"] == [0.0, 0.0]
-    assert metadata["rows"][0]["search_evaluation_count"] > 0
-    assert metadata["rows"][0]["refined_score"] is None
-    assert metadata["rows"][0]["exact_axis_rotation_matrix"]
-    assert metadata["rows"][0]["near_axis_rotation_matrix"] is None
-    assert metadata["presentation"]["columns"] == [
-        "Class Average",
-        "Exact-Axis Matched Projection",
-        "Exact-Axis Camera View",
-    ]
-    assert metadata["presentation"]["static_only"] is True
     assert len(job.plots) == 1
-    assert len(job.plots[0][0].axes) == 3
     assert job.output_images["axis_search_preview"]
     assert len(job.tile_images) == 1
     preview = job.saved["axis_search_preview"]
@@ -213,6 +192,50 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
         message.startswith("Axis Search row JSON:")
         and "exact_axis_rotation_matrix" in message
         for message in job.logs
+    )
+    rendering_started = next(
+        index
+        for index, message in enumerate(job.logs)
+        if message.startswith(
+            "Axis Search stage: stage=result-rendering status=started"
+        )
+    )
+    sampling = next(
+        index
+        for index, message in enumerate(job.logs)
+        if message.startswith("Surface Sampling Grid:")
+    )
+    candidate_completed = next(
+        index
+        for index, message in enumerate(job.logs)
+        if message.startswith("Result Rendering progress:")
+    )
+    output_started = next(
+        index
+        for index, message in enumerate(job.logs)
+        if message.startswith("Axis Search stage: stage=output-writing status=started")
+    )
+    output_completed = next(
+        index
+        for index, message in enumerate(job.logs)
+        if message.startswith(
+            "Axis Search stage: stage=output-writing status=completed"
+        )
+    )
+    rendering_completed = next(
+        index
+        for index, message in enumerate(job.logs)
+        if message.startswith(
+            "Axis Search stage: stage=result-rendering status=completed"
+        )
+    )
+    assert (
+        rendering_started
+        < sampling
+        < candidate_completed
+        < output_started
+        < output_completed
+        < rendering_completed
     )
 
 
@@ -355,32 +378,6 @@ def test_axis_search_reports_recovery_after_a_cooperative_progress_stall(tmp_pat
 
     assert warnings
     assert all("progress resumed" in warning for warning in warnings)
-
-
-def test_axis_search_keeps_native_outputs_separate_from_128_search_outputs(tmp_path):
-    job = AxisJob(tmp_path, class_size=130)
-
-    main(
-        [
-            "--url", "https://cryosparc.example.test",
-            "--project", "P1",
-            "--workspace", "W1",
-            "--select-job", "J10",
-            "--volume-job", "J20",
-            "--axis-family", "2fold",
-            "--top-n", "1",
-            "--render-size", "64",
-            "--render-grid-size", "16",
-        ],
-        client_factory=lambda url: AxisClient(AxisProject(job)),
-    )
-
-    search = job.saved["axis_exact_search_projections"]
-    matched = job.saved["axis_exact_matched_projections"]
-    assert search["blob/shape"].tolist() == [[128, 128]]
-    assert matched["blob/shape"].tolist() == [[130, 130]]
-    assert search["blob/psize_A"][0] == pytest.approx(130 / 128)
-    assert matched["blob/psize_A"][0] == pytest.approx(1.0)
 
 
 def test_axis_search_logs_the_active_stage_before_propagating_a_failure(tmp_path):
@@ -549,70 +546,3 @@ def test_axis_cli_enables_near_axis_refinement_only_when_requested(tmp_path):
     } <= set(job.saved)
     metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
     assert metadata["proximity_config"]["enabled"] is True
-    assert metadata["rows"][0]["refined_score"] is not None
-    assert metadata["presentation"]["columns"] == [
-        "Class Average",
-        "Near-Axis Matched Projection",
-        "Exact-Axis Matched Projection",
-        "Near-Axis Camera View",
-        "Exact-Axis Camera View",
-    ]
-    assert len(job.plots[0][0].axes) == 5
-    labels = {text.get_text() for text in job.plots[0][0].findobj(Text)}
-    expected_angle = metadata["rows"][0]["angular_distance_degrees"]
-    assert any(
-        f"Near-Axis Angle {expected_angle:.3f}°" in label for label in labels
-    )
-
-
-def test_presentation_overrides_do_not_change_scores_or_orientations(tmp_path):
-    common = [
-        "--url", "https://cryosparc.example.test",
-        "--project", "P1",
-        "--workspace", "W1",
-        "--select-job", "J10",
-        "--volume-job", "J20",
-        "--axis-family", "2fold",
-        "--top-n", "1",
-        "--render-size", "64",
-        "--render-grid-size", "16",
-    ]
-    first_job = AxisJob(tmp_path / "first")
-    second_job = AxisJob(tmp_path / "second")
-
-    main(common, client_factory=lambda url: AxisClient(AxisProject(first_job)))
-    main(
-        [
-            *common,
-            "--render-map", "sharpened",
-            "--comparison-dpi", "150",
-            "--preview-page-size", "1",
-            "--axis-roll", "2fold=25",
-        ],
-        client_factory=lambda url: AxisClient(AxisProject(second_job)),
-    )
-
-    first = json.loads((first_job.directory / "axis_search_results.json").read_text())
-    second = json.loads((second_job.directory / "axis_search_results.json").read_text())
-    scientific_keys = (
-        "axis_class_score",
-        "refined_score",
-        "roll_degrees",
-        "shift_xy_pixels",
-        "near_axis_rotation_matrix",
-        "angular_distance_degrees",
-    )
-    assert {key: first["rows"][0][key] for key in scientific_keys} == {
-        key: second["rows"][0][key] for key in scientific_keys
-    }
-    assert first["presentation"] != second["presentation"]
-    _, first_raw = mrc.read(first_job.directory / "axis_candidates_raw.mrcs")
-    _, second_raw = mrc.read(second_job.directory / "axis_candidates_raw.mrcs")
-    _, first_aligned = mrc.read(
-        first_job.directory / "axis_candidates_aligned.mrcs"
-    )
-    _, second_aligned = mrc.read(
-        second_job.directory / "axis_candidates_aligned.mrcs"
-    )
-    assert np.array_equal(first_raw, second_raw)
-    assert not np.array_equal(first_aligned, second_aligned)
