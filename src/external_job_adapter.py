@@ -357,20 +357,12 @@ class CryoSPARCExternalJobAdapter:
         warning_label=None,
         warning_formatter=None,
     ):
-        try:
-            self.job.set_output_image(output_name, image_path)
-        except Exception as error:
-            message = (
-                warning_formatter(error)
-                if warning_formatter is not None
-                else (
-                    "WARNING: Could not attach "
-                    f"{warning_label or f'{output_name} preview'}; "
-                    "scientific output remains available. "
-                    f"{error}"
-                )
-            )
-            self.set_warning(message, warning_callback)
+        self._attach_preview(
+            lambda: self.job.set_output_image(output_name, image_path),
+            warning_callback=warning_callback,
+            warning_label=warning_label or f"{output_name} preview",
+            warning_formatter=warning_formatter,
+        )
 
     def attach_tile_preview(
         self,
@@ -380,15 +372,30 @@ class CryoSPARCExternalJobAdapter:
         warning_label=None,
         warning_formatter=None,
     ):
+        self._attach_preview(
+            lambda: self.job.set_tile_image(image_path),
+            warning_callback=warning_callback,
+            warning_label=warning_label or "job tile preview",
+            warning_formatter=warning_formatter,
+        )
+
+    def _attach_preview(
+        self,
+        attachment_action,
+        *,
+        warning_callback,
+        warning_label,
+        warning_formatter,
+    ):
         try:
-            self.job.set_tile_image(image_path)
+            attachment_action()
         except Exception as error:
             message = (
                 warning_formatter(error)
                 if warning_formatter is not None
                 else (
                     "WARNING: Could not attach "
-                    f"{warning_label or 'job tile preview'}; "
+                    f"{warning_label}; "
                     f"scientific output remains available. {error}"
                 )
             )
