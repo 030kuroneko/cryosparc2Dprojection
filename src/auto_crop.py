@@ -9,10 +9,16 @@ from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 
 
 AUTO_CROP_PADDING_FRACTION = 0.10
-AUTO_CROP_MAX_ZOOM = 3.0
 _MIN_COMPONENT_FRACTION = 0.005
 _MIN_BBOX_FRACTION = 0.10
 _MIN_BBOX_PIXELS = 8
+# Accepted foreground boxes are at least 10% of the native frame on each
+# axis.  With the 10% display padding on both sides, 8 1/3x is the greatest
+# zoom that can still retain that accepted padded box.  This is a natural
+# safety bound, rather than a presentation-specific fixed zoom choice.
+AUTO_CROP_MAX_ZOOM = 1.0 / (
+    _MIN_BBOX_FRACTION * (1.0 + 2.0 * AUTO_CROP_PADDING_FRACTION)
+)
 
 
 @dataclass(frozen=True)
@@ -125,16 +131,27 @@ def compute_auto_crop_2d_framing(
         2.0,
         raw_foreground_height * AUTO_CROP_PADDING_FRACTION,
     )
+    required_horizontal_padding = int(np.ceil(horizontal_padding))
+    required_vertical_padding = int(np.ceil(vertical_padding))
+    if (
+        foreground_left < required_horizontal_padding
+        or foreground_top < required_vertical_padding
+        or width - foreground_right < required_horizontal_padding
+        or height - foreground_bottom < required_vertical_padding
+    ):
+        return _fallback(shape, "foreground_padding_out_of_bounds")
     foreground_width = raw_foreground_width + 2.0 * horizontal_padding
     foreground_height = raw_foreground_height + 2.0 * vertical_padding
-    desired_side = (
-        max(foreground_width, foreground_height)
-        / max(target.width_fraction, target.height_fraction)
-    )
+    desired_side = max(
+        raw_foreground_width,
+        raw_foreground_height,
+    ) / max(target.width_fraction, target.height_fraction)
     minimum_side = int(
         np.ceil(max(width, height) / AUTO_CROP_MAX_ZOOM)
     )
     requested_side = int(np.ceil(desired_side))
+    padding_side = int(np.ceil(max(foreground_width, foreground_height)))
+    minimum_side = max(minimum_side, padding_side)
     clamped = requested_side < minimum_side
     side = min(max(width, height), max(minimum_side, requested_side))
     if side >= width or side >= height:

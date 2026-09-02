@@ -215,10 +215,12 @@ With `--auto-crop-2d`, each Class Result uses the native Matched Projection to
 estimate particle foreground and the renderer's rotated surface silhouette to
 choose a shared display frame for the Class Average and Matched Projection.
 The frame is applied with display axes limits, so all source and scientific
-arrays retain their native shape and values. Framing is capped at 3x zoom;
-unreliable foreground or silhouette bounds fall back to the complete native
-frame and record the reason in the result JSON metadata. The option does not
-crop standalone thumbnails or Camera View Render PNGs.
+arrays retain their native shape and values. The raw foreground occupancy is
+matched to the Camera View Render silhouette while retaining the required
+foreground padding; the accepted foreground-size policy provides the natural
+zoom safety bound. Unreliable foreground or silhouette bounds fall back to the
+complete native frame and record the reason in the result JSON metadata. The
+option does not crop standalone thumbnails or Camera View Render PNGs.
 
 Camera selection and the raw search score use a bounded Search Projection of
 at most 128 pixels per side. After selecting the camera, the job regenerates a

@@ -152,10 +152,10 @@ def test_exact_axis_result_applies_auto_crop_only_to_2d_panels():
     assert figure.axes[1].images[0].get_array().shape == (32, 32)
     assert np.array_equal(figure.axes[0].images[0].get_array(), np.flipud(panel))
     assert np.array_equal(figure.axes[1].images[0].get_array(), np.flipud(panel))
-    assert np.allclose(figure.axes[0].get_xlim(), (4.5, 28.5))
-    assert np.allclose(figure.axes[0].get_ylim(), (27.5, 3.5))
-    assert np.allclose(figure.axes[1].get_xlim(), (4.5, 28.5))
-    assert np.allclose(figure.axes[1].get_ylim(), (27.5, 3.5))
+    assert np.allclose(figure.axes[0].get_xlim(), (8.5, 24.5))
+    assert np.allclose(figure.axes[0].get_ylim(), (23.5, 7.5))
+    assert np.allclose(figure.axes[1].get_xlim(), (8.5, 24.5))
+    assert np.allclose(figure.axes[1].get_ylim(), (23.5, 7.5))
     assert figure.axes[2].images[0].get_array().shape == (8, 8, 3)
 
 
