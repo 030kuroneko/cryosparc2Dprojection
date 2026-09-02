@@ -494,6 +494,14 @@ def run_external_orientation_job(
                 f"scientific output remains available. {error}"
             ),
         )
+        adapter.attach_tile_preview(
+            thumbnail_path,
+            warning_formatter=lambda error: (
+                "WARNING: Could not attach matched_projections thumbnail "
+                "to job tile; scientific output remains available. "
+                f"{type(error).__name__}: {error}"
+            ),
+        )
         for page_number, page in enumerate(preview_pages, start=1):
             adapter.log_plot(
                 page,

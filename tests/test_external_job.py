@@ -345,6 +345,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert thumbnail is None
     thumbnail_path = job.output_images["matched_projections"]
     assert thumbnail_path == tmp_path / "renders" / "matched_projections_thumbnail.png"
+    assert job.tile_images == [thumbnail_path]
     with Image.open(thumbnail_path) as output_thumbnail:
         assert output_thumbnail.size == (7, 7)
         assert output_thumbnail.mode == "L"
@@ -655,6 +656,46 @@ def test_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
     assert any(
         "Could not attach matched_projections thumbnail" in message
         and "thumbnail service unavailable" in message
+        for message in job.logs
+    )
+
+
+def test_tile_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
+    tmp_path,
+):
+    project, job = _native_grid_external_job(
+        tmp_path,
+        class_size=9,
+        rendering_shape=(6, 4, 3),
+    )
+    job.tile_image_error = RuntimeError("job tile service unavailable")
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            map_name="sharpened",
+            image_size=64,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
+    )
+
+    assert "matched_projections" in job.saved_outputs
+    assert "search_projections" in job.saved_outputs
+    assert job.output_images["matched_projections"] == (
+        tmp_path / "renders" / "matched_projections_thumbnail.png"
+    )
+    assert job.tile_images == []
+    assert any(
+        "Could not attach matched_projections thumbnail to job tile" in message
+        and "scientific output remains available" in message
+        and "job tile service unavailable" in message
         for message in job.logs
     )
 
