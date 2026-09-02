@@ -4,12 +4,86 @@ from PIL import Image
 
 from cryosparc_2d_projection.surface_render import (
     build_surface_model,
+    get_surface_silhouette_bounds,
     write_camera_view_render,
     ClassRenderOptions,
+    SurfaceModel,
     resolve_surface_sampling_grid,
     SurfaceRenderMemoryError,
     recommend_lower_surface_grid_size,
 )
+
+
+def test_surface_renderer_exposes_normalized_rotated_silhouette_bounds():
+    z, y, x = np.mgrid[-1:1:33j, -1:1:33j, -1:1:33j]
+    volume = (
+        (x / 0.8) ** 2 + (y / 0.4) ** 2 + (z / 0.25) ** 2 < 1
+    ).astype(np.float32)
+    surface = build_surface_model(volume, surface_level=0.5)
+
+    identity = get_surface_silhouette_bounds(surface, np.eye(3))
+    quarter_turn = get_surface_silhouette_bounds(
+        surface,
+        np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+    )
+
+    assert 0.0 <= identity.left < identity.right <= 1.0
+    assert 0.0 <= identity.top < identity.bottom <= 1.0
+    assert identity.width_fraction > identity.height_fraction
+    assert quarter_turn.width_fraction == pytest.approx(identity.height_fraction)
+    assert quarter_turn.height_fraction == pytest.approx(identity.width_fraction)
+
+
+def test_surface_silhouette_bounds_measure_display_roll_from_geometry():
+    surface = SurfaceModel(
+        vertices=np.asarray(
+            [[-2.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 1.0, 0.0]]
+        ),
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+    )
+
+    rolled = get_surface_silhouette_bounds(
+        surface,
+        np.eye(3),
+        display_roll_degrees=45.0,
+    )
+
+    # The bounds are in final figure coordinates, including the renderer's
+    # axes rectangle and box-aspect zoom.
+    expected_fraction = 0.5226687215
+    assert rolled.width_fraction == pytest.approx(expected_fraction)
+    assert rolled.height_fraction == pytest.approx(expected_fraction)
+
+
+def test_surface_silhouette_bounds_match_camera_render_screen_occupancy(tmp_path):
+    z, y, x = np.mgrid[-1:1:25j, -1:1:25j, -1:1:25j]
+    volume = 1.0 - np.sqrt((x / 0.8) ** 2 + (y / 0.5) ** 2 + (z / 0.3) ** 2)
+    surface = build_surface_model(volume, surface_level=0.2, max_size=25)
+    render_path = write_camera_view_render(
+        tmp_path,
+        surface=surface,
+        rotation_matrix=np.eye(3),
+        class_number=1,
+        image_size=256,
+        background="dark",
+    )
+
+    image = np.asarray(Image.open(render_path).convert("L"))
+    rows, columns = np.nonzero(image > 40)
+    rendered_bounds = (
+        columns.min() / image.shape[1],
+        rows.min() / image.shape[0],
+        (columns.max() + 1) / image.shape[1],
+        (rows.max() + 1) / image.shape[0],
+    )
+    bounds = get_surface_silhouette_bounds(surface, np.eye(3))
+
+    assert bounds.left == pytest.approx(rendered_bounds[0], abs=0.03)
+    assert bounds.top == pytest.approx(rendered_bounds[1], abs=0.03)
+    assert bounds.right == pytest.approx(rendered_bounds[2], abs=0.03)
+    assert bounds.bottom == pytest.approx(rendered_bounds[3], abs=0.03)
 
 
 def test_surface_model_is_a_centered_triangle_mesh_at_requested_level():

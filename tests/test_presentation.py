@@ -9,6 +9,11 @@ def test_comparison_resolution_auto_sizes_only_an_unrequested_camera_render():
     assert options.resolve_render_size(512) == 512
 
 
+def test_comparison_options_expose_disabled_by_default_auto_crop_toggle():
+    assert ComparisonRenderOptions().auto_crop_2d is False
+    assert ComparisonRenderOptions(auto_crop_2d=True).auto_crop_2d is True
+
+
 @pytest.mark.parametrize(
     "settings",
     [

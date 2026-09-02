@@ -117,6 +117,14 @@ def build_parser():
         help="Number of classes per CryoSPARC preview page",
     )
     parser.add_argument(
+        "--auto-crop-2d",
+        action="store_true",
+        help=(
+            "Automatically crop 2D Class Average and Matched Projection panels "
+            "in comparison previews"
+        ),
+    )
+    parser.add_argument(
         "--diagnostic-low-resolution-A",
         type=float,
         default=80.0,
@@ -185,6 +193,7 @@ def main(argv=None, *, client_factory=None):
         comparison_options=ComparisonRenderOptions(
             dpi=args.comparison_dpi,
             page_size=args.preview_page_size,
+            auto_crop_2d=args.auto_crop_2d,
         ),
         warning_callback=lambda message: print(
             f"WARNING: {message}", file=sys.stderr

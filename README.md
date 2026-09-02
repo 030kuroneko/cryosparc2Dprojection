@@ -25,6 +25,11 @@ Use `--axis-family 2fold` for one family or
 `--axis-roll 2fold=10 --axis-roll 3fold=-5`, for final display-only rotation.
 The command also accepts the documented score, shift, proximity, comparison,
 surface, and rendering overrides shown by `--help`.
+Pass `--auto-crop-2d` to opt into presentation-only framing of the 2D panels.
+For a refined result, one common frame is used across the Class Average and
+both Near-/Exact-Axis Matched Projection panels; axis-roll is applied before
+that frame is computed. Native scientific arrays, MRCS outputs, thumbnails,
+and Camera View PNGs remain unchanged.
 
 Exact-Axis Ranking uses Search Projections of at most 128 pixels per side.
 For each roll angle, a band-limited, soft-masked FFT normalized-correlation map
@@ -177,6 +182,7 @@ Camera matching still uses the unsharpened `map`. Rendering options are:
 --render-grid-size INTEGER     Optional maximum surface grid; default: native map
 --comparison-dpi INTEGER       All three-column Class Results; default: 100
 --preview-page-size INTEGER    Classes per CryoSPARC preview page; default: 10
+--auto-crop-2d                 Opt-in presentation-only 2D framing; default: off
 ```
 
 When `--render-size` is omitted, its effective value is
@@ -204,6 +210,15 @@ For a high-quality export with one class per Event Log page:
 This changes only Class Result raster presentation. It does not alter the Class
 Average, Search Projection, native-grid Matched Projection, Surface Sampling
 Grid, camera search, or matching scores.
+
+With `--auto-crop-2d`, each Class Result uses the native Matched Projection to
+estimate particle foreground and the renderer's rotated surface silhouette to
+choose a shared display frame for the Class Average and Matched Projection.
+The frame is applied with display axes limits, so all source and scientific
+arrays retain their native shape and values. Framing is capped at 3x zoom;
+unreliable foreground or silhouette bounds fall back to the complete native
+frame and record the reason in the result JSON metadata. The option does not
+crop standalone thumbnails or Camera View Render PNGs.
 
 Camera selection and the raw search score use a bounded Search Projection of
 at most 128 pixels per side. After selecting the camera, the job regenerates a

@@ -6,6 +6,8 @@ import pytest
 from cryosparc import mrc
 
 from cryosparc_2d_projection.axis_registry import get_axis_family
+from cryosparc_2d_projection.auto_crop import compute_auto_crop_2d_framing
+from cryosparc_2d_projection.axis_presentation import apply_axis_display_roll
 from cryosparc_2d_projection.axis_result_rendering import (
     AxisResultRenderingError,
     AxisResultRenderingEventCode,
@@ -23,7 +25,10 @@ from cryosparc_2d_projection.axis_search import (
 )
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.projection import project_volume_at_rotation
-from cryosparc_2d_projection.surface_render import ClassRenderOptions
+from cryosparc_2d_projection.surface_render import (
+    ClassRenderOptions,
+    SurfaceSilhouetteBounds,
+)
 
 
 def test_result_rendering_writes_one_complete_axis_search_result_set(tmp_path):
@@ -434,6 +439,101 @@ def test_result_rendering_presentation_options_do_not_change_scientific_results(
     )
 
 
+def test_result_rendering_auto_crops_exact_axis_2d_panels(tmp_path):
+    request = replace(
+        _request(tmp_path, native_size=64),
+        comparison_options=ComparisonRenderOptions(
+            page_size=1,
+            auto_crop_2d=True,
+        ),
+    )
+
+    result = render_axis_search_results(request)
+
+    framing = result.artifact["rows"][0]["presentation"]["auto_crop_2d"]
+    assert result.artifact["presentation"]["auto_crop_2d"]["enabled"] is True
+    assert framing["fallback"] is False
+    assert framing["zoom"] > 1.0
+    crop = framing["crop_bounds"]
+    expected_xlim = (crop["left"] - 0.5, crop["right"] - 0.5)
+    expected_ylim = (crop["bottom"] - 0.5, crop["top"] - 0.5)
+    axes = result.preview_pages[0].axes
+    for axis in axes[:2]:
+        assert axis.images[0].get_array().shape == (64, 64)
+        assert np.allclose(axis.get_xlim(), expected_xlim)
+        assert np.allclose(axis.get_ylim(), expected_ylim)
+    assert axes[2].images[0].get_array().shape == (64, 64, 3)
+
+
+def test_near_axis_auto_crop_uses_rolled_display_projections(tmp_path):
+    request = replace(
+        _near_axis_request(tmp_path, native_size=64),
+        axis_rolls={"2fold": 90.0},
+        comparison_options=ComparisonRenderOptions(
+            page_size=1,
+            auto_crop_2d=True,
+        ),
+    )
+
+    result = render_axis_search_results(request)
+
+    framing = result.artifact["rows"][0]["presentation"]["auto_crop_2d"]
+    silhouette = framing["silhouette_bounds"]
+    silhouette_bounds = SurfaceSilhouetteBounds(
+        silhouette["left"],
+        silhouette["top"],
+        silhouette["right"],
+        silhouette["bottom"],
+    )
+    displayed = [
+        apply_axis_display_roll(
+            np.flipud(result.stacks[name].data[0]),
+            90.0,
+            background="dark",
+        )
+        for name in (
+            "axis_exact_matched_projections",
+            "axis_near_matched_projections",
+        )
+    ]
+    expected = compute_auto_crop_2d_framing(
+        displayed,
+        [silhouette_bounds],
+        enabled=True,
+    )
+    assert framing == expected.as_dict()
+    crop = framing["crop_bounds"]
+    expected_xlim = (crop["left"] - 0.5, crop["right"] - 0.5)
+    expected_ylim = (crop["bottom"] - 0.5, crop["top"] - 0.5)
+    for axis in result.preview_pages[0].axes[:3]:
+        assert np.allclose(axis.get_xlim(), expected_xlim)
+        assert np.allclose(axis.get_ylim(), expected_ylim)
+
+
+def test_axis_auto_crop_preserves_scientific_rows_and_stacks(tmp_path):
+    disabled = render_axis_search_results(
+        replace(
+            _request(tmp_path / "disabled", native_size=64),
+            comparison_options=ComparisonRenderOptions(auto_crop_2d=False),
+        )
+    )
+    enabled = render_axis_search_results(
+        replace(
+            _request(tmp_path / "enabled", native_size=64),
+            comparison_options=ComparisonRenderOptions(auto_crop_2d=True),
+        )
+    )
+
+    assert {
+        key: value
+        for key, value in enabled.artifact["rows"][0].items()
+        if key != "presentation"
+    } == disabled.artifact["rows"][0]
+    for name in disabled.stacks:
+        assert np.array_equal(enabled.stacks[name].data, disabled.stacks[name].data)
+        assert enabled.stacks[name].pixel_size_A == disabled.stacks[name].pixel_size_A
+
+
 def _request(
     tmp_path,
     *,
@@ -443,7 +543,16 @@ def _request(
 ):
     size = native_size
     volume = np.zeros((size, size, size), dtype=np.float32)
-    volume[2:6, 3:8, 8:12] = 1.0
+    volume[
+        int(0.22 * size) : int(0.38 * size),
+        int(0.28 * size) : int(0.47 * size),
+        int(0.56 * size) : int(0.75 * size),
+    ] = 1.0
+    volume[
+        int(0.62 * size) : int(0.78 * size),
+        int(0.53 * size) : int(0.72 * size),
+        int(0.19 * size) : int(0.31 * size),
+    ] = 0.6
     family = get_axis_family("I", "2fold")
     projection = project_volume_at_rotation(volume, family.canonical_camera_matrix)
     search_projection = projection

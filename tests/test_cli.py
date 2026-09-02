@@ -239,6 +239,19 @@ def test_cli_defaults_to_automatic_render_size_and_100_dpi_comparisons():
     assert args.preview_page_size == 10
 
 
+def test_cli_exposes_opt_in_auto_crop_2d_flag():
+    common = [
+        "--url", "http://localhost:39000",
+        "--project", "P1",
+        "--workspace", "W9",
+        "--select-job", "J1025",
+        "--refinement-job", "J1083",
+    ]
+
+    assert build_parser().parse_args(common).auto_crop_2d is False
+    assert build_parser().parse_args([*common, "--auto-crop-2d"]).auto_crop_2d is True
+
+
 @pytest.mark.parametrize("value", ["0", "3,3", "class3"])
 def test_cli_rejects_invalid_class_numbers(value):
     with pytest.raises(ValueError):

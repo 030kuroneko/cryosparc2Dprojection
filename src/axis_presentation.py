@@ -5,7 +5,12 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import rotate as rotate_image
 
+from cryosparc_2d_projection.auto_crop import (
+    AutoCropDecision,
+    set_auto_crop_2d_limits,
+)
 from cryosparc_2d_projection.axis_registry import get_axis_family
+from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 
 
 AXIS_RESULT_COLUMNS = (
@@ -52,6 +57,7 @@ class ExactAxisResultPanelRow:
     class_average: np.ndarray
     exact_matched_projection: np.ndarray
     exact_axis_view: np.ndarray
+    auto_crop_decision: AutoCropDecision | None = None
 
     def panels(self):
         return (
@@ -73,6 +79,7 @@ class AxisResultPanelRow:
     exact_axis_projection: np.ndarray
     near_axis_view: np.ndarray
     exact_axis_view: np.ndarray
+    auto_crop_decision: AutoCropDecision | None = None
 
     def panels(self):
         return (
@@ -143,6 +150,7 @@ def create_axis_result_figure(
     axis_rolls=None,
     dpi=100,
     background="dark",
+    comparison_options=None,
 ):
     """Create the approved static five-column result figure."""
 
@@ -152,6 +160,7 @@ def create_axis_result_figure(
     if not rows:
         raise ValueError("at least one Axis Result row is required")
     axis_rolls = dict(axis_rolls or {})
+    comparison_options = comparison_options or ComparisonRenderOptions()
     columns = rows[0].columns
     if any(row.columns != columns for row in rows):
         raise ValueError("all Axis Result rows must use the same columns")
@@ -180,7 +189,15 @@ def create_axis_result_figure(
                 roll,
                 background=background,
             )
+            decision = getattr(row, "auto_crop_decision", None)
+            crop_panel = (
+                comparison_options.auto_crop_2d
+                and decision is not None
+                and column_index < (2 if columns == EXACT_AXIS_RESULT_COLUMNS else 3)
+            )
             axis.imshow(displayed, cmap="gray" if displayed.ndim == 2 else None)
+            if crop_panel:
+                set_auto_crop_2d_limits(axis, decision)
             axis.set_title(title)
             axis.axis("off")
     return figure

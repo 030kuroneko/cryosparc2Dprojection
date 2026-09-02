@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
+from cryosparc_2d_projection.auto_crop import set_auto_crop_2d_limits
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 
 
@@ -73,6 +74,7 @@ def create_class_preview_pages(
     diagnostic_scores=None,
     comparison_options=None,
     page_size=None,
+    auto_crop_decisions=None,
 ):
     """Create three-column Class Result pages with bounded row counts."""
     comparison_options = comparison_options or ComparisonRenderOptions()
@@ -92,6 +94,7 @@ def create_class_preview_pages(
             diagnostic_scores=diagnostic_scores,
             comparison_options=comparison_options,
             class_ids=class_ids[start : start + effective_page_size],
+            auto_crop_decisions=auto_crop_decisions,
         )
         for start in range(0, len(class_ids), effective_page_size)
     ]
@@ -107,6 +110,7 @@ def create_class_preview_figure(
     diagnostic_scores=None,
     comparison_options=None,
     class_ids,
+    auto_crop_decisions=None,
 ):
     """Create one three-column Class Result figure for the requested classes."""
     from matplotlib.figure import Figure
@@ -116,6 +120,7 @@ def create_class_preview_figure(
         class_id: row for row, class_id in enumerate(sorted(orientations))
     }
     comparison_options = comparison_options or ComparisonRenderOptions()
+    auto_crop_decisions = dict(auto_crop_decisions or {})
     figure = Figure(
         figsize=(9, 3 * len(class_ids)),
         dpi=comparison_options.dpi,
@@ -124,9 +129,12 @@ def create_class_preview_figure(
 
     for row, class_id in enumerate(class_ids):
         orientation = orientations[class_id]
+        framing = auto_crop_decisions.get(class_id)
         class_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 1)
+        displayed_class = np.flipud(class_averages[class_id].image)
+        displayed_projection = np.flipud(projections[projection_rows[class_id]])
         class_axis.imshow(
-            np.flipud(class_averages[class_id].image),
+            displayed_class,
             cmap="gray",
             interpolation="hanning",
         )
@@ -135,10 +143,12 @@ def create_class_preview_figure(
             f"spread={orientation.angular_spread_degrees:.1f}°"
         )
         class_axis.axis("off")
+        if comparison_options.auto_crop_2d and framing is not None:
+            set_auto_crop_2d_limits(class_axis, framing)
 
         projection_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 2)
         projection_axis.imshow(
-            np.flipud(projections[projection_rows[class_id]]),
+            displayed_projection,
             cmap="gray",
             interpolation="hanning",
         )
@@ -162,6 +172,8 @@ def create_class_preview_figure(
                 projection_title += "\nband=invalid"
         projection_axis.set_title(projection_title)
         projection_axis.axis("off")
+        if comparison_options.auto_crop_2d and framing is not None:
+            set_auto_crop_2d_limits(projection_axis, framing)
 
         camera_view_axis = figure.add_subplot(len(class_ids), 3, row * 3 + 3)
         with Image.open(render_paths[class_id]) as camera_view_image:

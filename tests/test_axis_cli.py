@@ -424,6 +424,19 @@ def test_axis_cli_accepts_repeatable_display_only_axis_roll_and_render_controls(
     assert args.surface_level == 0.2
 
 
+def test_axis_cli_exposes_opt_in_auto_crop_2d_flag():
+    common = [
+        "--url", "http://localhost:39000",
+        "--project", "P1",
+        "--workspace", "W1",
+        "--select-job", "J10",
+        "--volume-job", "J20",
+    ]
+
+    assert build_parser().parse_args(common).auto_crop_2d is False
+    assert build_parser().parse_args([*common, "--auto-crop-2d"]).auto_crop_2d is True
+
+
 def test_axis_cli_rejects_removed_axis_families_option():
     common = [
         "--url", "http://localhost:39000",

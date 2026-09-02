@@ -21,6 +21,11 @@ from cryosparc_2d_projection.axis_presentation import (
     apply_axis_display_roll,
     create_axis_result_figure,
 )
+from cryosparc_2d_projection.auto_crop import (
+    AUTO_CROP_MAX_ZOOM,
+    AUTO_CROP_PADDING_FRACTION,
+    compute_auto_crop_2d_framing,
+)
 from cryosparc_2d_projection.axis_search import (
     AxisProximityConfig,
     AxisRefinementResult,
@@ -37,6 +42,7 @@ from cryosparc_2d_projection.scoring import compute_diagnostic_band_limited_scor
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     build_surface_model,
+    get_surface_silhouette_bounds,
     resolve_surface_sampling_grid,
     write_camera_view_render,
 )
@@ -322,7 +328,17 @@ def _render_to_staging(request, directory, warnings):
             pass_name="exact",
         )
         native_near = None
+        auto_crop_decision = None
         if refined is None:
+            auto_crop_decision = _compute_axis_auto_crop_decision(
+                request,
+                warnings,
+                surface=surface,
+                candidate=candidate,
+                native_exact=native_exact,
+                native_near=None,
+                display_roll=display_roll,
+            )
             try:
                 panel_rows.append(
                     ExactAxisResultPanelRow(
@@ -337,6 +353,7 @@ def _render_to_staging(request, directory, warnings):
                             native_exact["matched_projection"]
                         ),
                         exact_axis_view=exact_view,
+                        auto_crop_decision=auto_crop_decision,
                     )
                 )
             except Exception as error:
@@ -381,6 +398,16 @@ def _render_to_staging(request, directory, warnings):
                 render_size,
                 pass_name="near",
             )
+            auto_crop_decision = _compute_axis_auto_crop_decision(
+                request,
+                warnings,
+                surface=surface,
+                candidate=candidate,
+                native_exact=native_exact,
+                native_near=native_near,
+                near_rotation_matrix=refined.near_axis_rotation_matrix,
+                display_roll=display_roll,
+            )
             try:
                 panel_rows.append(
                     AxisResultPanelRow(
@@ -401,6 +428,7 @@ def _render_to_staging(request, directory, warnings):
                         ),
                         near_axis_view=near_view,
                         exact_axis_view=exact_view,
+                        auto_crop_decision=auto_crop_decision,
                     )
                 )
             except Exception as error:
@@ -426,6 +454,10 @@ def _render_to_staging(request, directory, warnings):
                 error,
             ) from error
         rows.append(row)
+        if auto_crop_decision is not None:
+            row["presentation"] = {
+                "auto_crop_2d": auto_crop_decision.as_dict()
+            }
         _emit(
             request,
             AxisResultRenderingEventCode.CANDIDATE_COMPLETED,
@@ -497,6 +529,7 @@ def _render_to_staging(request, directory, warnings):
                 axis_rolls=request.axis_rolls,
                 dpi=request.comparison_options.dpi,
                 background=request.render_options.background,
+                comparison_options=request.comparison_options,
             )
             page.savefig(
                 directory / output_name,
@@ -632,6 +665,85 @@ def _render_camera_view(
         raise _candidate_output_error(candidate, output_name, error) from error
 
 
+def _compute_axis_auto_crop_decision(
+    request,
+    warnings,
+    *,
+    surface,
+    candidate,
+    native_exact,
+    native_near,
+    near_rotation_matrix=None,
+    display_roll=0.0,
+):
+    if not request.comparison_options.auto_crop_2d:
+        return None
+    projections = [
+        _roll_projection_for_auto_crop(
+            native_exact["matched_projection"], display_roll
+        )
+    ]
+    rotations = [candidate.exact_rotation_matrix]
+    if native_near is not None:
+        projections.append(
+            _roll_projection_for_auto_crop(
+                native_near["matched_projection"], display_roll
+            )
+        )
+        rotations.append(near_rotation_matrix)
+    try:
+        silhouettes = [
+            get_surface_silhouette_bounds(
+                surface,
+                rotation,
+                display_roll_degrees=display_roll,
+            )
+            for rotation in rotations
+        ]
+    except (TypeError, ValueError):
+        silhouettes = []
+    decision = compute_auto_crop_2d_framing(
+        projections,
+        silhouettes,
+        enabled=True,
+    )
+    if decision.fallback:
+        event = AxisResultRenderingEvent(
+            AxisResultRenderingEventCode.WARNING,
+            "warning",
+            "result-rendering",
+            "Auto-Cropped 2D Framing fell back for "
+            f"Class {candidate.class_number}: {decision.fallback_reason}",
+            family_name=candidate.family_name,
+            class_number=candidate.class_number,
+            output_name="axis_search_preview",
+        )
+        warnings.append(event)
+        _notify(request.warning_callback, event)
+    return decision
+
+
+def _roll_projection_for_auto_crop(projection, display_roll):
+    displayed = np.flipud(np.asarray(projection))
+    border = np.concatenate(
+        [
+            displayed[0, :],
+            displayed[-1, :],
+            displayed[1:-1, 0],
+            displayed[1:-1, -1],
+        ]
+    )
+    background = float(np.median(border))
+    return (
+        apply_axis_display_roll(
+            displayed - background,
+            display_roll,
+            background="dark",
+        )
+        + background
+    )
+
+
 def _result_row(
     request,
     candidate,
@@ -700,7 +812,7 @@ def _artifact(
     render_size,
     timings,
 ):
-    return {
+    artifact = {
         "cryosparc_version": "5.0.6",
         "symmetry": "I",
         "families": list(request.search_result.families),
@@ -740,6 +852,13 @@ def _artifact(
         "timings": timings,
         "rows": rows,
     }
+    if request.comparison_options.auto_crop_2d:
+        artifact["presentation"]["auto_crop_2d"] = {
+            "enabled": True,
+            "max_zoom": AUTO_CROP_MAX_ZOOM,
+            "padding_fraction": AUTO_CROP_PADDING_FRACTION,
+        }
+    return artifact
 
 
 def _sampling_grid_message(sampling_grid):

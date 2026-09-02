@@ -52,6 +52,10 @@ _Avoid_: Projection only
 The raster dimensions and display scale of a static three-column Class Result. Changing it does not alter the Class Average, Matched Projection, Class Camera Orientation, matching scores, or Camera View Render geometry.
 _Avoid_: Matching resolution, map resolution, projection calculation grid
 
+**Auto-Cropped 2D Framing**:
+An optional presentation-only framing in which the Class Average and Matched Projection of each Class Result share a crop derived from the aligned Matched Projection, making its foreground occupy the same panel proportion as that result's Camera View Render silhouette. An unreliable framing falls back to the complete native frame; framing metadata may be recorded for reproducibility, but framing never alters native image data, projections, scoring, or other scientific calculations.
+_Avoid_: Scientific image crop, projection resampling, particle extraction
+
 **Match Confidence**:
 Evidence that a Class Camera Orientation is reliable, based on projection similarity, separation from competing orientations, and orientation spread.
 _Avoid_: Correlation alone, certainty

@@ -18,8 +18,14 @@ from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     SurfaceRenderMemoryError,
     build_surface_model,
+    get_surface_silhouette_bounds,
     resolve_surface_sampling_grid,
     write_camera_view_render,
+)
+from cryosparc_2d_projection.auto_crop import (
+    AUTO_CROP_MAX_ZOOM,
+    AUTO_CROP_PADDING_FRACTION,
+    compute_auto_crop_2d_framing,
 )
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
 from cryosparc_2d_projection.viewer import (
@@ -158,6 +164,12 @@ def run_external_orientation_job(
                 "warnings": list(resolved_presentation.warnings),
             },
         }
+        if comparison_options.auto_crop_2d:
+            artifact["presentation"]["auto_crop_2d"] = {
+                "enabled": True,
+                "max_zoom": AUTO_CROP_MAX_ZOOM,
+                "padding_fraction": AUTO_CROP_PADDING_FRACTION,
+            }
         job_directory = adapter.resource_directory
         output_path = job_directory / "class_orientations.json"
         output_path.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -282,6 +294,7 @@ def run_external_orientation_job(
             **sampling_grid.as_dict(),
         }
         render_paths = {}
+        framing_decisions = {}
         for class_entry in artifact["classes"]:
             camera = camera_results[class_entry["class_id"]]
             native_projection = native_projection_results[class_entry["class_id"]]
@@ -353,6 +366,43 @@ def run_external_orientation_job(
             except SurfaceRenderMemoryError as error:
                 adapter.log(str(error))
                 raise
+            if comparison_options.auto_crop_2d:
+                class_id = class_entry["class_id"]
+                displayed_projection = np.flipud(
+                    native_projection_results[class_id].matched_projection
+                )
+                silhouette_error = None
+                try:
+                    silhouette_bounds = get_surface_silhouette_bounds(
+                        surface,
+                        camera.rotation_matrix,
+                    )
+                except (TypeError, ValueError) as error:
+                    silhouette_bounds = None
+                    silhouette_error = error
+                decision = compute_auto_crop_2d_framing(
+                    [displayed_projection],
+                    [] if silhouette_bounds is None else [silhouette_bounds],
+                    enabled=True,
+                )
+                if decision.fallback:
+                    reason = decision.fallback_reason
+                    if silhouette_error is not None:
+                        reason = f"{reason}; {silhouette_error}"
+                    warning_message = (
+                        "WARNING: Auto-Cropped 2D Framing fell back for "
+                        f"Class {class_entry['class_number']}: {reason}"
+                    )
+                    adapter.log(warning_message)
+                    if warning_callback is not None:
+                        try:
+                            warning_callback(warning_message)
+                        except Exception:
+                            pass
+                framing_decisions[class_id] = decision
+                class_entry["presentation"] = {
+                    "auto_crop_2d": decision.as_dict()
+                }
         write_chimerax_bundle(
             job_directory / "chimerax",
             map_path=str(rendering_volume_path),
@@ -412,6 +462,7 @@ def run_external_orientation_job(
             render_paths,
             diagnostic_scores=diagnostic_scores,
             comparison_options=comparison_options,
+            auto_crop_decisions=framing_decisions,
         )
         for class_id in sorted(orientations):
             comparison = create_class_preview_figure(
@@ -423,6 +474,7 @@ def run_external_orientation_job(
                 diagnostic_scores=diagnostic_scores,
                 comparison_options=comparison_options,
                 class_ids=[class_id],
+                auto_crop_decisions=framing_decisions,
             )
             comparison.savefig(
                 job_directory

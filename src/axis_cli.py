@@ -52,6 +52,14 @@ def build_parser():
     parser.add_argument("--render-size", type=int)
     parser.add_argument("--render-grid-size", type=int)
     parser.add_argument("--surface-level", type=float)
+    parser.add_argument(
+        "--auto-crop-2d",
+        action="store_true",
+        help=(
+            "Automatically crop 2D Class Average and Matched Projection panels "
+            "in comparison previews"
+        ),
+    )
     return parser
 
 
@@ -92,6 +100,7 @@ def main(argv=None, *, client_factory=None):
         comparison_options=ComparisonRenderOptions(
             dpi=args.comparison_dpi,
             page_size=args.preview_page_size,
+            auto_crop_2d=args.auto_crop_2d,
         ),
         render_options=ClassRenderOptions(
             surface_level=args.surface_level,

@@ -14,6 +14,8 @@ _BYTES_PER_GIB = 1024**3
 # storage is deliberately excluded because it depends on the contour.
 _SURFACE_MEMORY_BYTES_PER_VOXEL = 4 + 1 + 4 + 1 + 4
 _SURFACE_GRID_TIERS = (512, 384, 256, 192, 128)
+_RENDER_AXES_RECT = (0.02, 0.02, 0.96, 0.96)
+_RENDER_BOX_ZOOM = 1.45
 
 
 def recommend_lower_surface_grid_size(failed_grid_size):
@@ -231,6 +233,152 @@ class SurfaceModel:
 
 
 @dataclass(frozen=True)
+class SurfaceSilhouetteBounds:
+    """Normalized display-space bounds of an orthographic surface silhouette."""
+
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+    def __post_init__(self):
+        values = (self.left, self.top, self.right, self.bottom)
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("surface silhouette bounds must be finite")
+        if not (
+            0.0 <= self.left < self.right <= 1.0
+            and 0.0 <= self.top < self.bottom <= 1.0
+        ):
+            raise ValueError("surface silhouette bounds must be ordered in [0, 1]")
+
+    @property
+    def width_fraction(self):
+        return self.right - self.left
+
+    @property
+    def height_fraction(self):
+        return self.bottom - self.top
+
+    @property
+    def center(self):
+        return (
+            (self.left + self.right) / 2.0,
+            (self.top + self.bottom) / 2.0,
+        )
+
+    def as_dict(self):
+        return {
+            "left": float(self.left),
+            "top": float(self.top),
+            "right": float(self.right),
+            "bottom": float(self.bottom),
+            "width_fraction": float(self.width_fraction),
+            "height_fraction": float(self.height_fraction),
+            "center": [float(value) for value in self.center],
+        }
+
+
+def get_surface_silhouette_bounds(
+    surface,
+    rotation_matrix,
+    *,
+    display_roll_degrees=0.0,
+):
+    """Return the normalized bounds used by the top orthographic render.
+
+    Bounds use display coordinates: ``left``/``right`` increase to the right
+    and ``top``/``bottom`` increase down the image.  They are derived from the
+    rotated surface geometry rather than from a rendered RGB image.
+    """
+
+    if not isinstance(surface, SurfaceModel):
+        raise TypeError("surface must be a SurfaceModel")
+    rotation_matrix = np.asarray(rotation_matrix, dtype=float)
+    if rotation_matrix.shape != (3, 3) or not np.isfinite(rotation_matrix).all():
+        raise ValueError("surface rotation matrix must be a finite 3 x 3 array")
+    if not np.isfinite(display_roll_degrees):
+        raise ValueError("surface display roll must be finite")
+    if surface.vertices.ndim != 2 or surface.vertices.shape[1] != 3:
+        raise ValueError("surface vertices must be an N x 3 array")
+    if len(surface.vertices) == 0:
+        raise ValueError("surface must contain at least one vertex")
+    vertices = _rotate_surface_vertices(
+        surface.vertices,
+        rotation_matrix,
+        display_roll_degrees=display_roll_degrees,
+    )
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from mpl_toolkits.mplot3d import proj3d
+
+    figure = Figure(figsize=(1.0, 1.0), dpi=100)
+    FigureCanvasAgg(figure)
+    axis = figure.add_axes(_RENDER_AXES_RECT, projection="3d")
+    _configure_surface_render_axis(axis, surface, background="dark")
+    projected_x, projected_y, _ = proj3d.proj_transform(
+        vertices[:, 0],
+        vertices[:, 1],
+        vertices[:, 2],
+        axis.get_proj(),
+    )
+    display_coordinates = axis.transData.transform(
+        np.column_stack((projected_x, projected_y))
+    )
+    canvas_width, canvas_height = figure.canvas.get_width_height()
+    left = float(np.min(display_coordinates[:, 0])) / canvas_width
+    right = float(np.max(display_coordinates[:, 0])) / canvas_width
+    top = 1.0 - float(np.max(display_coordinates[:, 1])) / canvas_height
+    bottom = 1.0 - float(np.min(display_coordinates[:, 1])) / canvas_height
+    return SurfaceSilhouetteBounds(
+        left=float(np.clip(left, 0.0, 1.0)),
+        top=float(np.clip(top, 0.0, 1.0)),
+        right=float(np.clip(right, 0.0, 1.0)),
+        bottom=float(np.clip(bottom, 0.0, 1.0)),
+    )
+
+
+def _rotate_surface_vertices(vertices, rotation_matrix, *, display_roll_degrees):
+    vertices = np.asarray(vertices, dtype=float) @ rotation_matrix.T
+    radians = np.deg2rad(float(display_roll_degrees))
+    if radians != 0.0:
+        cosine = np.cos(radians)
+        sine = np.sin(radians)
+        x_coordinates = vertices[:, 0].copy()
+        y_coordinates = vertices[:, 1].copy()
+        vertices[:, 0] = cosine * x_coordinates - sine * y_coordinates
+        vertices[:, 1] = sine * x_coordinates + cosine * y_coordinates
+    return vertices
+
+
+def _configure_surface_render_axis(axis, surface, *, background):
+    if background not in {"dark", "light"}:
+        raise ValueError("render background must be 'dark' or 'light'")
+    background_color = "#080b10" if background == "dark" else "#ffffff"
+    axis.set_facecolor(background_color)
+    radius = _surface_frame_radius(surface)
+    axis.set(
+        xlim=(-radius, radius),
+        ylim=(-radius, radius),
+        zlim=(-radius, radius),
+    )
+    axis.set_box_aspect((1, 1, 1), zoom=_RENDER_BOX_ZOOM)
+    axis.set_proj_type("ortho")
+    axis.view_init(elev=90, azim=-90)
+    axis.set_axis_off()
+    return axis
+
+
+def _surface_frame_radius(surface):
+    vertices = np.asarray(surface.vertices, dtype=float)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or len(vertices) == 0:
+        raise ValueError("surface vertices must be a non-empty N x 3 array")
+    radius = max(float(np.max(np.linalg.norm(vertices, axis=1))), 1.0) * 1.12
+    if not np.isfinite(radius):
+        raise ValueError("surface vertices must be finite")
+    return radius
+
+
+@dataclass(frozen=True)
 class ClassRenderOptions:
     """Validated presentation policy for Class Result rendering artifacts."""
 
@@ -437,8 +585,8 @@ def _write_surface_image(path, surface, rotation_matrix, *, image_size, backgrou
         facecolor=background_color,
     )
     FigureCanvasAgg(figure)
-    axis = figure.add_axes((0.02, 0.02, 0.96, 0.96), projection="3d")
-    axis.set_facecolor(background_color)
+    axis = figure.add_axes(_RENDER_AXES_RECT, projection="3d")
+    _configure_surface_render_axis(axis, surface, background=background)
     mesh = Poly3DCollection(
         triangles,
         facecolors=face_colors,
@@ -448,14 +596,4 @@ def _write_surface_image(path, surface, rotation_matrix, *, image_size, backgrou
         zsort="average",
     )
     axis.add_collection3d(mesh)
-    radius = max(float(np.max(np.linalg.norm(surface.vertices, axis=1))), 1.0) * 1.12
-    axis.set(
-        xlim=(-radius, radius),
-        ylim=(-radius, radius),
-        zlim=(-radius, radius),
-    )
-    axis.set_box_aspect((1, 1, 1), zoom=1.45)
-    axis.set_proj_type("ortho")
-    axis.view_init(elev=90, azim=-90)
-    axis.set_axis_off()
     figure.savefig(path, dpi=dpi, facecolor=background_color)

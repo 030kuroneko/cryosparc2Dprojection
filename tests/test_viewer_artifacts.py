@@ -2,7 +2,10 @@ from types import SimpleNamespace
 
 import numpy as np
 from PIL import Image
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
+from cryosparc_2d_projection.auto_crop import compute_auto_crop_2d_framing
+from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 from cryosparc_2d_projection.viewer import (
     create_class_preview_pages,
     write_chimerax_bundle,
@@ -111,3 +114,71 @@ def test_class_result_displays_2d_images_in_cryosparc_display_orientation(tmp_pa
     assert not np.array_equal(displayed_projection, np.fliplr(matched_projection))
     assert page.axes[0].images[0].get_interpolation() == "hanning"
     assert page.axes[1].images[0].get_interpolation() == "hanning"
+
+
+def test_class_result_applies_one_auto_crop_decision_to_both_2d_panels(tmp_path):
+    class_average = np.zeros((32, 32), dtype=np.float32)
+    class_average[12:20, 13:21] = 1.0
+    render_path = tmp_path / "class_001_exact.png"
+    Image.new("RGB", (8, 8), "white").save(render_path)
+    decision = compute_auto_crop_2d_framing(
+        [np.flipud(class_average)],
+        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        enabled=True,
+    )
+
+    page = create_class_preview_pages(
+        {0: type("ClassAverage", (), {"image": class_average})()},
+        np.asarray([class_average]),
+        {0: type("Camera", (), {"match_score": 0.9})()},
+        {0: type("Orientation", (), {"particle_count": 1, "angular_spread_degrees": 0.0})()},
+        {0: render_path},
+        comparison_options=ComparisonRenderOptions(auto_crop_2d=True),
+        auto_crop_decisions={0: decision},
+    )[0]
+
+    displayed_class = np.asarray(page.axes[0].images[0].get_array())
+    displayed_projection = np.asarray(page.axes[1].images[0].get_array())
+    assert displayed_class.shape == displayed_projection.shape == (32, 32)
+    assert np.array_equal(displayed_class, np.flipud(class_average))
+    assert np.array_equal(displayed_projection, np.flipud(class_average))
+    assert np.allclose(page.axes[0].get_xlim(), (4.5, 28.5))
+    assert np.allclose(page.axes[0].get_ylim(), (27.5, 3.5))
+    assert np.allclose(page.axes[1].get_xlim(), (4.5, 28.5))
+    assert np.allclose(page.axes[1].get_ylim(), (27.5, 3.5))
+    assert page.axes[2].images[0].get_array().shape == (8, 8, 3)
+
+
+def test_disabled_auto_crop_keeps_rendered_preview_pixel_identical(tmp_path):
+    class_average = np.zeros((32, 32), dtype=np.float32)
+    class_average[12:20, 13:21] = 1.0
+    render_path = tmp_path / "class_001_exact.png"
+    Image.new("RGB", (8, 8), "white").save(render_path)
+    inputs = (
+        {0: SimpleNamespace(image=class_average)},
+        np.asarray([class_average]),
+        {0: SimpleNamespace(match_score=0.9)},
+        {0: SimpleNamespace(particle_count=1, angular_spread_degrees=0.0)},
+        {0: render_path},
+    )
+    decision = compute_auto_crop_2d_framing(
+        [np.flipud(class_average)],
+        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        enabled=True,
+    )
+
+    baseline = create_class_preview_pages(*inputs)[0]
+    disabled = create_class_preview_pages(
+        *inputs,
+        comparison_options=ComparisonRenderOptions(auto_crop_2d=False),
+        auto_crop_decisions={0: decision},
+    )[0]
+    baseline_canvas = FigureCanvasAgg(baseline)
+    disabled_canvas = FigureCanvasAgg(disabled)
+    baseline_canvas.draw()
+    disabled_canvas.draw()
+
+    assert np.array_equal(
+        np.asarray(baseline_canvas.buffer_rgba()),
+        np.asarray(disabled_canvas.buffer_rgba()),
+    )

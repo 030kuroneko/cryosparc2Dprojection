@@ -20,12 +20,15 @@ class ComparisonRenderOptions:
 
     dpi: int = 100
     page_size: int = 10
+    auto_crop_2d: bool = False
 
     def __post_init__(self):
         if type(self.dpi) is not int or self.dpi <= 0:
             raise ValueError("comparison DPI must be a positive integer")
         if type(self.page_size) is not int or self.page_size <= 0:
             raise ValueError("preview page size must be a positive integer")
+        if type(self.auto_crop_2d) is not bool:
+            raise ValueError("auto-crop 2D flag must be boolean")
 
     def resolve_render_size(self, requested_render_size):
         if requested_render_size is not None:

@@ -3,6 +3,7 @@ import json
 import numpy as np
 from cryosparc import mrc
 import pytest
+import cryosparc_2d_projection.external_job as external_job_module
 
 from cryosparc_2d_projection.external_job import (
     NativeReprojectionError,
@@ -436,6 +437,191 @@ def test_external_job_separates_native_matched_and_bounded_search_projections(
 
     preview = job.plots[0][0]
     assert preview.axes[1].get_title().startswith("Matched | search raw=")
+
+
+def test_external_job_auto_crops_only_comparison_2d_panels(tmp_path):
+    project, job = _native_grid_external_job(tmp_path, class_size=64)
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            image_size=64,
+            grid_size=8,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(
+            dpi=100,
+            page_size=1,
+            auto_crop_2d=True,
+        ),
+    )
+
+    results = json.loads((tmp_path / "class_orientations.json").read_text())
+    framing = results["classes"][0]["presentation"]["auto_crop_2d"]
+    assert results["presentation"]["auto_crop_2d"]["enabled"] is True
+    assert framing["fallback"] is False
+    assert framing["zoom"] > 1.0
+    assert framing["crop_shape"][0] == framing["crop_shape"][1]
+    preview = job.plots[0][0]
+    assert preview.axes[0].images[0].get_array().shape == (64, 64)
+    assert preview.axes[1].images[0].get_array().shape == (64, 64)
+    crop_bounds = framing["crop_bounds"]
+    expected_xlim = (
+        crop_bounds["left"] - 0.5,
+        crop_bounds["right"] - 0.5,
+    )
+    expected_ylim = (
+        crop_bounds["bottom"] - 0.5,
+        crop_bounds["top"] - 0.5,
+    )
+    assert np.allclose(preview.axes[0].get_xlim(), expected_xlim)
+    assert np.allclose(preview.axes[0].get_ylim(), expected_ylim)
+    assert np.allclose(preview.axes[1].get_xlim(), expected_xlim)
+    assert np.allclose(preview.axes[1].get_ylim(), expected_ylim)
+    assert preview.axes[2].images[0].get_array().shape == (64, 64, 3)
+    _, matched = mrc.read(tmp_path / "class_projections.mrcs")
+    assert matched.shape == (1, 64, 64)
+    with Image.open(tmp_path / "renders" / "class_001_exact.png") as camera_view:
+        assert camera_view.size == (64, 64)
+
+
+def test_external_job_auto_crop_silhouette_failure_reports_one_warning(
+    tmp_path, monkeypatch
+):
+    project, job = _native_grid_external_job(tmp_path, class_size=64)
+
+    def fail_silhouette(*args, **kwargs):
+        raise ValueError("invalid surface geometry")
+
+    monkeypatch.setattr(
+        external_job_module,
+        "get_surface_silhouette_bounds",
+        fail_silhouette,
+    )
+    callback_messages = []
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            image_size=64,
+            grid_size=8,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(
+            dpi=100,
+            page_size=1,
+            auto_crop_2d=True,
+        ),
+        warning_callback=callback_messages.append,
+    )
+
+    warning_text = "Auto-Cropped 2D Framing fell back"
+    logged = [message for message in job.logs if warning_text in message]
+    callbacks = [message for message in callback_messages if warning_text in message]
+    assert len(logged) == 1
+    assert len(callbacks) == 1
+    assert logged[0] == callbacks[0]
+    assert "invalid surface geometry" in logged[0]
+
+
+def test_external_job_auto_crop_preserves_scientific_outputs(tmp_path):
+    (tmp_path / "disabled").mkdir()
+    (tmp_path / "enabled").mkdir()
+    disabled_project, disabled_job = _native_grid_external_job(
+        tmp_path / "disabled", class_size=64
+    )
+    enabled_project, enabled_job = _native_grid_external_job(
+        tmp_path / "enabled", class_size=64
+    )
+    common = dict(
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            image_size=64,
+            grid_size=8,
+            surface_level=0.5,
+        ),
+    )
+    run_external_orientation_job(
+        disabled_project,
+        comparison_options=ComparisonRenderOptions(
+            dpi=100, page_size=1, auto_crop_2d=False
+        ),
+        **common,
+    )
+    run_external_orientation_job(
+        enabled_project,
+        comparison_options=ComparisonRenderOptions(
+            dpi=100, page_size=1, auto_crop_2d=True
+        ),
+        **common,
+    )
+
+    for filename in ("class_projections.mrcs", "search_projections.mrcs"):
+        disabled_header, disabled_values = mrc.read(
+            tmp_path / "disabled" / filename
+        )
+        enabled_header, enabled_values = mrc.read(tmp_path / "enabled" / filename)
+        assert disabled_values.shape == enabled_values.shape
+        assert np.array_equal(disabled_values, enabled_values)
+        assert enabled_header.nx == disabled_header.nx
+        assert enabled_header.ny == disabled_header.ny
+        assert enabled_header.nz == disabled_header.nz
+        assert enabled_header.xlen / enabled_header.nx == pytest.approx(
+            disabled_header.xlen / disabled_header.nx
+        )
+
+    disabled = json.loads(
+        (tmp_path / "disabled" / "class_orientations.json").read_text()
+    )
+    enabled = json.loads(
+        (tmp_path / "enabled" / "class_orientations.json").read_text()
+    )
+    disabled_class = disabled["classes"][0]
+    enabled_class = enabled["classes"][0]
+    for key in ("class_id", "class_number", "particle_count", "angular_spread_degrees"):
+        assert enabled_class[key] == disabled_class[key]
+    for key in ("view_direction",):
+        assert np.allclose(enabled_class[key], disabled_class[key])
+    enabled_camera = enabled_class["camera"]
+    disabled_camera = disabled_class["camera"]
+    for key in (
+        "rotation_matrix",
+        "quaternion_xyzw",
+        "view_direction",
+        "projection_shift_pixels",
+        "search_projection_shift_pixels",
+    ):
+        assert np.allclose(enabled_camera[key], disabled_camera[key])
+    for key in (
+        "in_plane_rotation_degrees",
+        "match_score",
+        "second_best_score",
+        "score_margin",
+        "matching_box_size",
+        "matching_pixel_size_A",
+        "search_box_size",
+        "search_pixel_size_A",
+        "search_evaluation_count",
+    ):
+        assert enabled_camera[key] == disabled_camera[key]
+    assert enabled_camera["match_confidence"] == disabled_camera["match_confidence"]
 
 
 def test_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
