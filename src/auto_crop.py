@@ -10,6 +10,9 @@ from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 
 
 AUTO_CROP_PADDING_FRACTION = 0.10
+# The normalized raster-visible foreground begins above the old 5% raw peak
+# proxy; this cutoff keeps weak connected halos out of the framing bounds.
+AUTO_CROP_DISPLAY_VISIBILITY_CUTOFF = 0.065
 _MIN_COMPONENT_FRACTION = 0.005
 _MIN_BBOX_FRACTION = 0.10
 _MIN_BBOX_PIXELS = 5
@@ -300,7 +303,10 @@ def _detect_foreground_bounds(projections):
 
 def _foreground_bounds_for_peak(deviations, shape, percentile, mad):
     provisional_peak = float(np.percentile(deviations, percentile))
-    threshold = max(6.0 * mad, 0.05 * provisional_peak)
+    threshold = max(
+        6.0 * mad,
+        AUTO_CROP_DISPLAY_VISIBILITY_CUTOFF * provisional_peak,
+    )
     if threshold <= 0.0 or not np.isfinite(threshold):
         return None, "constant_or_low_dynamic_range"
     largest, failure = _largest_component(deviations >= threshold)
@@ -313,7 +319,10 @@ def _foreground_bounds_for_peak(deviations, shape, percentile, mad):
     # one attached to the component, from setting the final threshold.
     supported_peak = _spatially_supported_peak(deviations, largest)
     if supported_peak is not None:
-        threshold = max(6.0 * mad, 0.05 * supported_peak)
+        threshold = max(
+            6.0 * mad,
+            AUTO_CROP_DISPLAY_VISIBILITY_CUTOFF * supported_peak,
+        )
     foreground = deviations >= threshold
     largest, failure = _largest_component(foreground)
     if largest is None:
