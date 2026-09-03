@@ -150,6 +150,129 @@ def test_auto_crop_matches_raw_foreground_occupancy_when_padding_allows_it():
     assert decision.fallback is False
 
 
+def test_auto_crop_matches_display_visible_occupancy_with_connected_weak_halo():
+    size = 128
+    rows, columns = np.indices((size, size))
+    radius = np.hypot(
+        columns - (size - 1) / 2.0,
+        rows - (size - 1) / 2.0,
+    )
+    core_radius = 30.0
+    halo_value = 0.38
+    matched_projection = np.zeros((size, size), dtype=np.float32)
+    core_profile = halo_value + 8.8 * np.maximum(
+        0.0,
+        1.0 - radius / core_radius,
+    ) ** 1.2
+    core = radius <= core_radius
+    halo = (radius > core_radius) & (radius <= core_radius + 4.0)
+    matched_projection[core] = core_profile[core]
+    matched_projection[halo] = halo_value
+    # A handful of bright peaks are valid signal, not isolated outliers.
+    for row, column, value in (
+        (62, 63, 10.0),
+        (63, 64, 9.7),
+        (64, 63, 9.4),
+        (61, 64, 9.2),
+        (65, 62, 8.9),
+        (63, 61, 8.7),
+    ):
+        matched_projection[row, column] = value
+
+    silhouette = SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)
+    decision = compute_auto_crop_2d_framing(
+        [matched_projection], [silhouette], enabled=True
+    )
+
+    assert decision.fallback is False
+    background = float(
+        np.median(
+            np.concatenate(
+                [
+                    matched_projection[0, :],
+                    matched_projection[-1, :],
+                    matched_projection[1:-1, 0],
+                    matched_projection[1:-1, -1],
+                ]
+            )
+        )
+    )
+    visible = np.abs(matched_projection - background) >= (
+        0.05 * np.max(np.abs(matched_projection - background))
+    )
+    left, top, right, bottom = decision.crop_bounds
+    visible_rows, visible_columns = np.nonzero(visible[top:bottom, left:right])
+    visible_width = visible_columns.max() - visible_columns.min() + 1
+    visible_height = visible_rows.max() - visible_rows.min() + 1
+    visible_occupancy = max(visible_width, visible_height) / decision.crop_shape[0]
+
+    assert visible_occupancy == pytest.approx(
+        max(silhouette.width_fraction, silhouette.height_fraction),
+        abs=0.04,
+    )
+
+
+def test_auto_crop_uses_spatially_supported_peak_to_reject_a_weak_halo():
+    size = 128
+    matched_projection = np.zeros((size, size), dtype=np.float32)
+    matched_projection[56:72, 56:72] = 8.0
+    matched_projection[63, 63] = 10.0
+    # This halo is connected to the core, but remains below the 5%-of-peak
+    # display threshold.  A global percentile can mistake it for foreground.
+    matched_projection[40:88, 40:88][matched_projection[40:88, 40:88] == 0] = 0.45
+    silhouette = SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)
+
+    decision = compute_auto_crop_2d_framing(
+        [matched_projection], [silhouette], enabled=True
+    )
+
+    assert decision.fallback is False
+    assert decision.foreground_bounds == (56, 56, 72, 72)
+    assert decision.crop_shape == (22, 22)
+
+
+def test_auto_crop_ignores_a_single_extreme_pixel_in_the_peak_estimate():
+    size = 128
+    matched_projection = np.zeros((size, size), dtype=np.float32)
+    matched_projection[56:72, 56:72] = 8.0
+    matched_projection[63, 63] = 10.0
+    baseline = compute_auto_crop_2d_framing(
+        [matched_projection],
+        [SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)],
+        enabled=True,
+    )
+
+    # Keep the outlier attached to the object so connected-component-only
+    # peak estimates cannot silently treat this as a separate component.
+    matched_projection[64, 64] = 1000.0
+    decision = compute_auto_crop_2d_framing(
+        [matched_projection],
+        [SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)],
+        enabled=True,
+    )
+
+    assert decision.fallback is False
+    assert decision.foreground_bounds == baseline.foreground_bounds
+    assert decision.crop_bounds == baseline.crop_bounds
+
+
+def test_auto_crop_keeps_a_valid_seed_box_when_peak_threshold_is_compact():
+    matched_projection = np.zeros((64, 64), dtype=np.float32)
+    # The display-level threshold leaves a 7-pixel-wide core, while the
+    # lower seed mask supplies the minimum valid box used for framing.
+    matched_projection[26:37, 26:34] = 0.1
+    matched_projection[28:35, 28:31] = 5.0
+
+    decision = compute_auto_crop_2d_framing(
+        [matched_projection],
+        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        enabled=True,
+    )
+
+    assert decision.fallback is False
+    assert decision.foreground_bounds == (26, 26, 34, 37)
+
+
 def test_auto_crop_records_non_finite_foreground_fallback_reason():
     matched_projection = np.zeros((32, 32), dtype=np.float32)
     matched_projection[12:20, 13:21] = 1.0

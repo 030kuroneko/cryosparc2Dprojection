@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.ndimage import label as label_components
+from scipy.ndimage import rank_filter
 
 from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 
@@ -12,6 +13,16 @@ AUTO_CROP_PADDING_FRACTION = 0.10
 _MIN_COMPONENT_FRACTION = 0.005
 _MIN_BBOX_FRACTION = 0.10
 _MIN_BBOX_PIXELS = 8
+# Use a high, deterministic percentile so a few extreme pixels do not define
+# the display foreground while the threshold still tracks visible signal.
+_ROBUST_PEAK_PERCENTILE = 99.9
+# Keep a compact valid foreground from being reduced below the accepted bbox
+# size when the high percentile has only a few signal samples to work with.
+_FALLBACK_ROBUST_PEAK_PERCENTILE = 99.0
+# A display peak must have local spatial support.  This removes isolated
+# hot-pixels without suppressing the clustered extrema present in projections.
+_LOCAL_PEAK_SUPPORT_FRACTION = 0.75
+_MIN_LOCAL_PEAK_SUPPORT = 3
 # Accepted foreground boxes are at least 10% of the native frame on each
 # axis.  With the 10% display padding on both sides, 8 1/3x is the greatest
 # zoom that can still retain that accepted padded box.  This is a natural
@@ -259,33 +270,23 @@ def _detect_foreground_bounds(projections):
         )
         background = float(np.median(border))
         deviations = np.abs(projection - background)
-        robust_peak = float(np.percentile(deviations, 99.0))
         mad = float(np.median(np.abs(border - background)))
-        threshold = max(6.0 * mad, 0.05 * robust_peak)
-        if threshold <= 0.0 or not np.isfinite(threshold):
-            return None, "constant_or_low_dynamic_range"
-        foreground = deviations >= threshold
-        components, count = label_components(foreground)
-        if count == 0:
-            return None, "no_foreground_component"
-        sizes = np.bincount(components.ravel())[1:]
-        largest_label = int(np.argmax(sizes)) + 1
-        largest = components == largest_label
-        area = int(np.count_nonzero(largest))
-        if area < max(1, int(np.ceil(projection.size * _MIN_COMPONENT_FRACTION))):
-            return None, "foreground_component_too_small"
-        rows, columns = np.nonzero(largest)
-        top, bottom = int(rows.min()), int(rows.max()) + 1
-        left, right = int(columns.min()), int(columns.max()) + 1
-        if left == 0 or top == 0 or right == projection.shape[1] or bottom == projection.shape[0]:
-            return None, "foreground_touches_boundary"
-        if (
-            right - left < max(_MIN_BBOX_PIXELS, int(np.ceil(projection.shape[1] * _MIN_BBOX_FRACTION)))
-            or bottom - top
-            < max(_MIN_BBOX_PIXELS, int(np.ceil(projection.shape[0] * _MIN_BBOX_FRACTION)))
-        ):
-            return None, "foreground_bbox_too_small"
-        detected.append((left, top, right, bottom))
+        bounds, failure = _foreground_bounds_for_peak(
+            deviations,
+            projection.shape,
+            _ROBUST_PEAK_PERCENTILE,
+            mad,
+        )
+        if bounds is None and failure == "foreground_bbox_too_small":
+            bounds, failure = _foreground_bounds_for_peak(
+                deviations,
+                projection.shape,
+                _FALLBACK_ROBUST_PEAK_PERCENTILE,
+                mad,
+            )
+        if bounds is None:
+            return None, failure
+        detected.append(bounds)
     return (
         (
             min(bounds[0] for bounds in detected),
@@ -295,6 +296,94 @@ def _detect_foreground_bounds(projections):
         ),
         None,
     )
+
+
+def _foreground_bounds_for_peak(deviations, shape, percentile, mad):
+    provisional_peak = float(np.percentile(deviations, percentile))
+    threshold = max(6.0 * mad, 0.05 * provisional_peak)
+    if threshold <= 0.0 or not np.isfinite(threshold):
+        return None, "constant_or_low_dynamic_range"
+    largest, failure = _largest_component(deviations >= threshold)
+    if largest is None:
+        return None, failure
+
+    # Estimate the display peak from a spatially supported part of the
+    # dominant signal component.  The provisional mask supplies the component
+    # identity; the local support check prevents one extreme pixel, including
+    # one attached to the component, from setting the final threshold.
+    supported_peak = _spatially_supported_peak(deviations, largest)
+    if supported_peak is not None:
+        threshold = max(6.0 * mad, 0.05 * supported_peak)
+    provisional_component = largest
+    foreground = deviations >= threshold
+    largest, failure = _largest_component(foreground)
+    if largest is None:
+        return None, failure
+
+    bounds, failure = _bounds_for_component(largest, shape)
+    if bounds is not None:
+        return bounds, None
+    # A compact high-threshold core can fall just below the minimum accepted
+    # box size even though the lower seed component is a reliable signal.  In
+    # that case retain the conservative seed box instead of disabling framing.
+    if failure in {"foreground_component_too_small", "foreground_bbox_too_small"}:
+        seed_bounds, seed_failure = _bounds_for_component(
+            provisional_component,
+            shape,
+        )
+        if seed_bounds is not None:
+            return seed_bounds, None
+        failure = seed_failure
+    return None, failure
+
+
+def _bounds_for_component(component, shape):
+    area = int(np.count_nonzero(component))
+    minimum_component_area = max(
+        1,
+        int(np.ceil(np.prod(shape) * _MIN_COMPONENT_FRACTION)),
+    )
+    if area < minimum_component_area:
+        return None, "foreground_component_too_small"
+    rows, columns = np.nonzero(component)
+    top, bottom = int(rows.min()), int(rows.max()) + 1
+    left, right = int(columns.min()), int(columns.max()) + 1
+    height, width = shape
+    if left == 0 or top == 0 or right == width or bottom == height:
+        return None, "foreground_touches_boundary"
+    minimum_bbox_width = max(_MIN_BBOX_PIXELS, int(np.ceil(width * _MIN_BBOX_FRACTION)))
+    minimum_bbox_height = max(
+        _MIN_BBOX_PIXELS,
+        int(np.ceil(height * _MIN_BBOX_FRACTION)),
+    )
+    if right - left < minimum_bbox_width or bottom - top < minimum_bbox_height:
+        return None, "foreground_bbox_too_small"
+    return (left, top, right, bottom), None
+
+
+def _largest_component(mask):
+    components, count = label_components(mask)
+    if count == 0:
+        return None, "no_foreground_component"
+    sizes = np.bincount(components.ravel())[1:]
+    largest_label = int(np.argmax(sizes)) + 1
+    return components == largest_label, None
+
+
+def _spatially_supported_peak(deviations, component):
+    local_rank = rank_filter(
+        deviations,
+        rank=9 - _MIN_LOCAL_PEAK_SUPPORT,
+        size=3,
+        mode="constant",
+        cval=0.0,
+    )
+    supported = component & (deviations > 0.0) & (
+        local_rank >= _LOCAL_PEAK_SUPPORT_FRACTION * deviations
+    )
+    if not np.any(supported):
+        return None
+    return float(np.max(deviations[supported]))
 
 
 def _centered_start(center, side, extent):
