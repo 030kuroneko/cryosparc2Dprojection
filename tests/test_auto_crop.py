@@ -208,7 +208,7 @@ def test_auto_crop_matches_display_visible_occupancy_with_connected_weak_halo():
 
     assert visible_occupancy == pytest.approx(
         max(silhouette.width_fraction, silhouette.height_fraction),
-        abs=0.04,
+        abs=0.03,
     )
 
 
@@ -256,10 +256,10 @@ def test_auto_crop_ignores_a_single_extreme_pixel_in_the_peak_estimate():
     assert decision.crop_bounds == baseline.crop_bounds
 
 
-def test_auto_crop_keeps_a_valid_seed_box_when_peak_threshold_is_compact():
+def test_auto_crop_falls_back_when_display_foreground_is_compact():
     matched_projection = np.zeros((64, 64), dtype=np.float32)
-    # The display-level threshold leaves a 7-pixel-wide core, while the
-    # lower seed mask supplies the minimum valid box used for framing.
+    # The display-level threshold leaves a 7-pixel-wide core.  The lower seed
+    # mask is an invisible halo and must not be used to manufacture a box.
     matched_projection[26:37, 26:34] = 0.1
     matched_projection[28:35, 28:31] = 5.0
 
@@ -269,8 +269,9 @@ def test_auto_crop_keeps_a_valid_seed_box_when_peak_threshold_is_compact():
         enabled=True,
     )
 
-    assert decision.fallback is False
-    assert decision.foreground_bounds == (26, 26, 34, 37)
+    assert decision.fallback is True
+    assert decision.fallback_reason == "foreground_bbox_too_small"
+    assert decision.crop_bounds == (0, 0, 64, 64)
 
 
 def test_auto_crop_records_non_finite_foreground_fallback_reason():

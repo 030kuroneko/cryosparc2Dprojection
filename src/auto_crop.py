@@ -12,7 +12,7 @@ from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 AUTO_CROP_PADDING_FRACTION = 0.10
 _MIN_COMPONENT_FRACTION = 0.005
 _MIN_BBOX_FRACTION = 0.10
-_MIN_BBOX_PIXELS = 8
+_MIN_BBOX_PIXELS = 5
 # Use a high, deterministic percentile so a few extreme pixels do not define
 # the display foreground while the threshold still tracks visible signal.
 _ROBUST_PEAK_PERCENTILE = 99.9
@@ -314,27 +314,13 @@ def _foreground_bounds_for_peak(deviations, shape, percentile, mad):
     supported_peak = _spatially_supported_peak(deviations, largest)
     if supported_peak is not None:
         threshold = max(6.0 * mad, 0.05 * supported_peak)
-    provisional_component = largest
     foreground = deviations >= threshold
     largest, failure = _largest_component(foreground)
     if largest is None:
         return None, failure
 
     bounds, failure = _bounds_for_component(largest, shape)
-    if bounds is not None:
-        return bounds, None
-    # A compact high-threshold core can fall just below the minimum accepted
-    # box size even though the lower seed component is a reliable signal.  In
-    # that case retain the conservative seed box instead of disabling framing.
-    if failure in {"foreground_component_too_small", "foreground_bbox_too_small"}:
-        seed_bounds, seed_failure = _bounds_for_component(
-            provisional_component,
-            shape,
-        )
-        if seed_bounds is not None:
-            return seed_bounds, None
-        failure = seed_failure
-    return None, failure
+    return (bounds, None) if bounds is not None else (None, failure)
 
 
 def _bounds_for_component(component, shape):
