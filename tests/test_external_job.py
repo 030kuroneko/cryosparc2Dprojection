@@ -806,7 +806,67 @@ def test_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
     )
 
 
-def test_class_result_preview_upload_failure_is_visible_without_losing_scientific_output(
+def test_class_orientation_dashboard_preview_uses_lowest_available_class_number(
+    tmp_path,
+):
+    project, job = _native_grid_external_job(
+        tmp_path,
+        class_size=9,
+        rendering_shape=(6, 4, 3),
+    )
+    _, original_stack = mrc.read(tmp_path / "templates.mrcs")
+    sparse_stack = np.zeros((5, 9, 9), dtype=np.float32)
+    sparse_stack[1] = original_stack[0]
+    sparse_stack[4] = original_stack[0]
+    mrc.write(tmp_path / "sparse_templates.mrcs", sparse_stack, 1.5)
+    job.datasets["select_2d_particles"] = np.array(
+        [(101, 4, 0.0), (102, 1, 0.0)],
+        dtype=[
+            ("uid", "u8"),
+            ("alignments2D/class", "i4"),
+            ("alignments2D/pose", "f8"),
+        ],
+    )
+    job.datasets["refinement_particles"] = np.array(
+        [(101, [0.0, 0.0, 0.0]), (102, [0.0, 0.0, 0.0])],
+        dtype=[("uid", "u8"), ("alignments3D/pose", "f8", (3,))],
+    )
+    job.datasets["select_2d_templates"] = np.array(
+        [
+            ("sparse_templates.mrcs", 4, 1.5),
+            ("sparse_templates.mrcs", 1, 1.5),
+        ],
+        dtype=[
+            ("blob/path", "U128"),
+            ("blob/idx", "i4"),
+            ("blob/psize_A", "f4"),
+        ],
+    )
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            map_name="sharpened",
+            image_size=64,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
+    )
+
+    assert (tmp_path / "renders" / "class_002_comparison.png").is_file()
+    assert (tmp_path / "renders" / "class_005_comparison.png").is_file()
+    assert job.tile_images == [
+        tmp_path / "renders" / "class_002_comparison.png"
+    ]
+
+
+def test_class_orientation_dashboard_preview_failure_preserves_other_outputs(
     tmp_path,
 ):
     project, job = _native_grid_external_job(
@@ -838,9 +898,12 @@ def test_class_result_preview_upload_failure_is_visible_without_losing_scientifi
         tmp_path / "renders" / "matched_projections_thumbnail.png"
     )
     assert (tmp_path / "renders" / "class_001_comparison.png").is_file()
+    assert len(job.plots) == 1
+    assert job.plots[0][1] == "Class camera preview 1/1"
     assert job.tile_images == []
     assert any(
-        "Could not attach Class Result Preview to job tile" in message
+        "Could not attach Class Orientation Dashboard Preview to job tile"
+        in message
         and "scientific output remains available" in message
         and "job tile service unavailable" in message
         for message in job.logs
