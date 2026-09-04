@@ -491,12 +491,13 @@ def run_external_orientation_job(
             comparison_options=comparison_options,
             auto_crop_decisions=framing_decisions,
         )
-        dashboard_preview_path = (
-            job_directory
+        comparison_paths = {
+            class_id: job_directory
             / "renders"
-            / f"class_{first_class_id + 1:03d}_comparison.png"
-        )
-        for class_id in sorted(orientations):
+            / f"class_{class_id + 1:03d}_comparison.png"
+            for class_id in sorted(orientations)
+        }
+        for class_id, comparison_path in comparison_paths.items():
             comparison = create_class_preview_figure(
                 class_averages,
                 projections,
@@ -507,13 +508,6 @@ def run_external_orientation_job(
                 comparison_options=comparison_options,
                 class_ids=[class_id],
                 auto_crop_decisions=framing_decisions,
-            )
-            comparison_path = (
-                dashboard_preview_path
-                if class_id == first_class_id
-                else job_directory
-                / "renders"
-                / f"class_{class_id + 1:03d}_comparison.png"
             )
             comparison.savefig(comparison_path, dpi=comparison_options.dpi)
         thumbnail_path = write_matched_projection_thumbnail(
@@ -529,7 +523,7 @@ def run_external_orientation_job(
             ),
         )
         adapter.attach_tile_preview(
-            dashboard_preview_path,
+            comparison_paths[first_class_id],
             warning_formatter=lambda error: (
                 "WARNING: Could not attach Class Orientation Dashboard Preview "
                 "to job tile; scientific output remains available. "
