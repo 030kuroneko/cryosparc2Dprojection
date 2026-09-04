@@ -2,20 +2,18 @@ import numpy as np
 import pytest
 
 from cryosparc_2d_projection.auto_crop import (
+    AutoCropDecision,
+    PhysicalCameraView,
     compute_auto_crop_2d_framing,
+    set_auto_crop_2d_limits,
 )
-from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
-
-
-_HALF_FRAME_SILHOUETTE = SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)
 
 
 def test_disabled_auto_crop_keeps_the_complete_native_frame():
-    matched_projection = np.zeros((32, 32), dtype=np.float32)
-
     decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [_HALF_FRAME_SILHOUETTE],
+        (32, 32),
+        2.0,
+        [],
         enabled=False,
     )
 
@@ -25,339 +23,387 @@ def test_disabled_auto_crop_keeps_the_complete_native_frame():
     assert decision.fallback is False
 
 
-def test_auto_crop_frames_native_2d_pair_to_surface_occupancy():
-    matched_projection = np.zeros((32, 32), dtype=np.float32)
-    matched_projection[12:20, 13:21] = 1.0
-    class_average = matched_projection.copy()
-    silhouette = SurfaceSilhouetteBounds(
-        left=0.25,
-        top=0.25,
-        right=0.75,
-        bottom=0.75,
-    )
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [silhouette],
-        enabled=True,
-    )
-
-    # Matching the raw 8 px foreground to a 50% silhouette needs a 16 px
-    # display window, which contains its 2 px padding on every side.
-    assert decision.crop_bounds == (9, 8, 25, 24)
-    assert decision.zoom == 32 / 16
-    assert decision.fallback is False
-    assert decision.clamped is False
-    class_average_before = class_average.copy()
-    matched_projection_before = matched_projection.copy()
-    assert class_average.shape == matched_projection.shape == (32, 32)
-    assert np.array_equal(class_average, class_average_before)
-    assert np.array_equal(matched_projection, matched_projection_before)
-
-
-def test_auto_crop_matches_the_foreground_and_surface_maximum_axes():
-    matched_projection = np.zeros((32, 32), dtype=np.float32)
-    matched_projection[12:20, 13:21] = 1.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [SurfaceSilhouetteBounds(0.20, 0.35, 0.80, 0.65)],
-        enabled=True,
-    )
-
-    # The raw foreground's maximum axis is 8 px and the silhouette's maximum
-    # axis is 60%, so the requested window is ceil(8 / .6) = 14 px.
-    assert decision.crop_bounds == (10, 9, 24, 23)
-    assert decision.crop_shape == (14, 14)
-    assert 8 / 14 == pytest.approx(0.60, abs=0.03)
-    assert decision.zoom == 32 / 14
-
-
-def test_auto_crop_uses_padding_lower_bound_and_records_the_clamp():
-    matched_projection = np.zeros((64, 64), dtype=np.float32)
-    matched_projection[28:36, 28:36] = 1.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [
-            SurfaceSilhouetteBounds(
-                left=0.05,
-                top=0.05,
-                right=0.95,
-                bottom=0.95,
-            )
-        ],
-        enabled=True,
-    )
-
-    # Raw occupancy cannot reach 90% while retaining the required 2 px
-    # padding: the 12 px padded box is the natural lower bound.
-    assert decision.crop_bounds == (26, 26, 38, 38)
-    assert decision.zoom == 64 / 12
-    assert decision.clamped is True
-    assert decision.fallback is False
-
-
-def test_auto_crop_keeps_a_compact_foreground_aligned_with_a_large_silhouette():
-    matched_projection = np.zeros((64, 64), dtype=np.float32)
-    matched_projection[26:38, 26:38] = 1.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [
-            SurfaceSilhouetteBounds(
-                left=0.125,
-                top=0.125,
-                right=0.875,
-                bottom=0.875,
-            )
-        ],
-        enabled=True,
-    )
-
-    # A 75% target requests 16 px, exactly the padded 16 px box.  The raw
-    # foreground therefore occupies the target 75% of the crop.
-    assert decision.crop_bounds == (24, 24, 40, 40)
-    assert decision.crop_shape == (16, 16)
-    assert 12 / 16 == pytest.approx(0.75)
-    assert decision.zoom == 64 / 16
-    assert decision.clamped is False
-    assert decision.fallback is False
-
-
-def test_auto_crop_matches_raw_foreground_occupancy_when_padding_allows_it():
-    matched_projection = np.zeros((128, 128), dtype=np.float32)
-    matched_projection[56:72, 56:72] = 1.0
-    silhouette = SurfaceSilhouetteBounds(
-        left=0.125,
-        top=0.125,
-        right=0.875,
-        bottom=0.875,
-    )
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection], [silhouette], enabled=True
-    )
-
-    # Matching the raw 16 px foreground to a 75% silhouette requests a 22 px
-    # window.  That window also contains the complete min-2px padding box and
-    # requires more than the old fixed 4x cap.
-    assert decision.crop_bounds == (53, 53, 75, 75)
-    assert decision.crop_shape == (22, 22)
-    assert 16 / 22 == pytest.approx(silhouette.width_fraction, abs=0.03)
-    assert decision.zoom == 128 / 22
-    assert decision.clamped is False
-    assert decision.fallback is False
-
-
-def test_auto_crop_matches_display_visible_occupancy_with_connected_weak_halo():
-    size = 128
-    rows, columns = np.indices((size, size))
-    radius = np.hypot(
-        columns - (size - 1) / 2.0,
-        rows - (size - 1) / 2.0,
-    )
-    core_radius = 30.0
-    halo_value = 0.38
-    matched_projection = np.zeros((size, size), dtype=np.float32)
-    core_profile = halo_value + 8.8 * np.maximum(
-        0.0,
-        1.0 - radius / core_radius,
-    ) ** 1.2
-    core = radius <= core_radius
-    halo = (radius > core_radius) & (radius <= core_radius + 4.0)
-    matched_projection[core] = core_profile[core]
-    matched_projection[halo] = halo_value
-    # A handful of bright peaks are valid signal, not isolated outliers.
-    for row, column, value in (
-        (62, 63, 10.0),
-        (63, 64, 9.7),
-        (64, 63, 9.4),
-        (61, 64, 9.2),
-        (65, 62, 8.9),
-        (63, 61, 8.7),
-    ):
-        matched_projection[row, column] = value
-
-    silhouette = SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection], [silhouette], enabled=True
-    )
-
-    assert decision.fallback is False
-    background = float(
-        np.median(
-            np.concatenate(
-                [
-                    matched_projection[0, :],
-                    matched_projection[-1, :],
-                    matched_projection[1:-1, 0],
-                    matched_projection[1:-1, -1],
-                ]
-            )
+def test_auto_crop_enabled_flag_must_be_boolean():
+    with pytest.raises(ValueError, match="boolean"):
+        compute_auto_crop_2d_framing(
+            (32, 32),
+            2.0,
+            [],
+            enabled=1,
         )
+
+
+def test_even_crop_side_preserves_even_source_pixel_center():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=82.0)],
+        enabled=True,
     )
-    visible = np.abs(matched_projection - background) >= (
-        0.05 * np.max(np.abs(matched_projection - background))
-    )
+
     left, top, right, bottom = decision.crop_bounds
-    visible_rows, visible_columns = np.nonzero(visible[top:bottom, left:right])
-    visible_width = visible_columns.max() - visible_columns.min() + 1
-    visible_height = visible_rows.max() - visible_rows.min() + 1
-    visible_occupancy = max(visible_width, visible_height) / decision.crop_shape[0]
-
-    assert visible_occupancy == pytest.approx(
-        max(silhouette.width_fraction, silhouette.height_fraction),
-        abs=0.03,
+    assert ((left + right - 1) / 2.0, (top + bottom - 1) / 2.0) == (
+        63.5,
+        63.5,
     )
-
-
-def test_auto_crop_uses_spatially_supported_peak_to_reject_a_weak_halo():
-    size = 128
-    matched_projection = np.zeros((size, size), dtype=np.float32)
-    matched_projection[56:72, 56:72] = 8.0
-    matched_projection[63, 63] = 10.0
-    # This halo is connected to the core, but remains below the 5%-of-peak
-    # display threshold.  A global percentile can mistake it for foreground.
-    matched_projection[40:88, 40:88][matched_projection[40:88, 40:88] == 0] = 0.45
-    silhouette = SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection], [silhouette], enabled=True
-    )
-
-    assert decision.fallback is False
-    assert decision.foreground_bounds == (56, 56, 72, 72)
-    assert decision.crop_shape == (22, 22)
-
-
-def test_auto_crop_ignores_a_single_extreme_pixel_in_the_peak_estimate():
-    size = 128
-    matched_projection = np.zeros((size, size), dtype=np.float32)
-    matched_projection[56:72, 56:72] = 8.0
-    matched_projection[63, 63] = 10.0
-    baseline = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)],
-        enabled=True,
-    )
-
-    # Keep the outlier attached to the object so connected-component-only
-    # peak estimates cannot silently treat this as a separate component.
-    matched_projection[64, 64] = 1000.0
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [SurfaceSilhouetteBounds(0.125, 0.125, 0.875, 0.875)],
-        enabled=True,
-    )
-
-    assert decision.fallback is False
-    assert decision.foreground_bounds == baseline.foreground_bounds
-    assert decision.crop_bounds == baseline.crop_bounds
-
-
-def test_auto_crop_falls_back_when_display_foreground_is_compact():
-    matched_projection = np.zeros((64, 64), dtype=np.float32)
-    # The display-level threshold leaves a 7-pixel-wide core.  The lower seed
-    # mask is an invisible halo and must not be used to manufacture a box.
-    matched_projection[26:37, 26:34] = 0.1
-    matched_projection[28:35, 28:31] = 5.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
-        enabled=True,
-    )
-
-    assert decision.fallback is True
-    assert decision.fallback_reason == "foreground_bbox_too_small"
-    assert decision.crop_bounds == (0, 0, 64, 64)
-
-
-def test_auto_crop_records_non_finite_foreground_fallback_reason():
-    matched_projection = np.zeros((32, 32), dtype=np.float32)
-    matched_projection[12:20, 13:21] = 1.0
-    matched_projection[0, 0] = np.nan
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
-        enabled=True,
-    )
-
-    assert decision.fallback is True
-    assert decision.fallback_reason == "non_finite_projection"
-
-
-def test_auto_crop_records_invalid_silhouette_fallback_reason():
-    matched_projection = np.zeros((32, 32), dtype=np.float32)
-    matched_projection[12:20, 13:21] = 1.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [object()],
-        enabled=True,
-    )
-
-    assert decision.fallback is True
-    assert decision.fallback_reason == "invalid_silhouette_bounds"
-    assert decision.crop_bounds == (0, 0, 32, 32)
-
-
-def test_auto_crop_follows_an_off_center_valid_foreground():
-    matched_projection = np.zeros((64, 64), dtype=np.float32)
-    matched_projection[16:32, 40:56] = 3.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection], [_HALF_FRAME_SILHOUETTE], enabled=True
-    )
-
-    assert decision.fallback is False
-    assert decision.foreground_bounds == (40, 16, 56, 32)
-    assert decision.crop_bounds == (32, 8, 64, 40)
-    assert decision.crop_bounds[2] == matched_projection.shape[1]
-    assert 16 / 32 == pytest.approx(_HALF_FRAME_SILHOUETTE.width_fraction)
-
-
-def test_auto_crop_falls_back_when_native_frame_cannot_retain_padding():
-    matched_projection = np.zeros((64, 64), dtype=np.float32)
-    matched_projection[20:36, 1:17] = 1.0
-
-    decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [
-            SurfaceSilhouetteBounds(
-                left=0.125,
-                top=0.125,
-                right=0.875,
-                bottom=0.875,
-            )
-        ],
-        enabled=True,
-    )
-
-    assert decision.fallback is True
-    assert decision.fallback_reason == "foreground_padding_out_of_bounds"
-    assert decision.crop_bounds == (0, 0, 64, 64)
 
 
 @pytest.mark.parametrize(
-    "matched_projection",
+    ("source_size", "side", "expected_bounds", "expected_center"),
     [
-        np.zeros((32, 32), dtype=np.float32),
-        np.pad(np.ones((1, 1), dtype=np.float32), ((15, 16), (15, 16))),
-        np.pad(np.ones((8, 8), dtype=np.float32), ((0, 24), (12, 12))),
-        np.pad(np.ones((4, 4), dtype=np.float32), ((14, 14), (14, 14))),
+        (127, 81, (23, 23, 104, 104), (63.0, 63.0)),
+        (127, 82, (22, 22, 104, 104), (62.5, 62.5)),
+        (128, 81, (24, 24, 105, 105), (64.0, 64.0)),
+        (128, 82, (23, 23, 105, 105), (63.5, 63.5)),
     ],
-    ids=["constant", "single-pixel", "boundary", "undersized"],
 )
-def test_unreliable_foreground_falls_back_to_the_native_frame(matched_projection):
+def test_crop_pixel_center_rounding_is_deterministic_across_parities(
+    source_size,
+    side,
+    expected_bounds,
+    expected_center,
+):
     decision = compute_auto_crop_2d_framing(
-        [matched_projection],
-        [_HALF_FRAME_SILHOUETTE],
+        (source_size, source_size),
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=float(side))],
+        enabled=True,
+    )
+
+    assert decision.crop_bounds == expected_bounds
+    left, top, right, bottom = decision.crop_bounds
+    selected_center = ((left + right - 1) / 2.0, (top + bottom - 1) / 2.0)
+    native_center = ((source_size - 1) / 2.0,) * 2
+    assert selected_center == expected_center
+    assert max(
+        abs(actual - target)
+        for actual, target in zip(selected_center, native_center)
+    ) <= 0.5
+
+
+def test_projection_shift_uses_the_same_bounded_pixel_center_rounding():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        1.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=82.0,
+                projection_shift_pixels=(1.25, -2.25),
+            )
+        ],
+        enabled=True,
+    )
+
+    assert decision.crop_bounds == (24, 25, 106, 107)
+    left, top, right, bottom = decision.crop_bounds
+    selected_center = np.asarray(
+        [(left + right - 1) / 2.0, (top + bottom - 1) / 2.0]
+    )
+    expected_center = np.asarray([64.75, 65.75])
+    assert np.max(np.abs(selected_center - expected_center)) <= 0.5
+
+
+def test_physical_camera_viewport_sets_native_crop_side_without_image_data():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [PhysicalCameraView(camera_viewport_A=80.0)],
+        enabled=True,
+    )
+
+    assert decision.crop_shape == (40, 40)
+    assert decision.crop_bounds == (44, 44, 84, 84)
+    assert decision.zoom == pytest.approx(128 / 40)
+    assert decision.fallback is False
+    assert decision.clamped is False
+
+
+def test_same_physical_viewport_scales_with_native_pixel_size():
+    fine = compute_auto_crop_2d_framing(
+        (128, 128),
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=80.0)],
+        enabled=True,
+    )
+    coarse = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [PhysicalCameraView(camera_viewport_A=80.0)],
+        enabled=True,
+    )
+
+    assert fine.crop_shape == (80, 80)
+    assert coarse.crop_shape == (40, 40)
+
+
+def test_display_roll_does_not_change_square_camera_scale():
+    unrolled = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [PhysicalCameraView(camera_viewport_A=80.0)],
+        enabled=True,
+    )
+    rolled = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [PhysicalCameraView(camera_viewport_A=80.0, display_roll_degrees=90.0)],
+        enabled=True,
+    )
+
+    assert rolled.crop_shape == unrolled.crop_shape
+    assert rolled.zoom == unrolled.zoom
+
+
+def test_projection_shift_is_flipped_for_display_then_rotated():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=80.0,
+                projection_shift_pixels=(6.0, 4.0),
+                display_roll_degrees=90.0,
+            )
+        ],
+        enabled=True,
+    )
+
+    # Raw (x=+6, y=+4) becomes display (x=+6, y=-4), then a 90-degree
+    # counter-clockwise display roll gives (x=-4, y=-6).
+    assert decision.crop_bounds == (40, 38, 80, 78)
+
+
+def test_multiple_views_with_matching_centers_share_their_largest_scale():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=70.0,
+                projection_shift_pixels=(0, 0),
+            ),
+            PhysicalCameraView(
+                camera_viewport_A=80.0,
+                projection_shift_pixels=(0, 0),
+            ),
+        ],
+        enabled=True,
+    )
+
+    assert decision.crop_shape == (40, 40)
+    assert decision.crop_bounds == (44, 44, 84, 84)
+
+
+def test_multiple_views_with_different_centers_use_range_midpoint():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=80.0,
+                projection_shift_pixels=(-8.0, 0.0),
+            ),
+            PhysicalCameraView(
+                camera_viewport_A=80.0,
+                projection_shift_pixels=(8.0, 0.0),
+            ),
+        ],
+        enabled=True,
+    )
+
+    assert decision.fallback is False
+    assert decision.crop_shape == (40, 40)
+    assert decision.crop_bounds == (44, 44, 84, 84)
+
+
+def test_multiple_view_centers_that_cannot_fit_one_crop_fall_back():
+    decision = compute_auto_crop_2d_framing(
+        (128, 128),
+        2.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=40.0,
+                projection_shift_pixels=(-30.0, 0.0),
+            ),
+            PhysicalCameraView(
+                camera_viewport_A=40.0,
+                projection_shift_pixels=(30.0, 0.0),
+            ),
+        ],
         enabled=True,
     )
 
     assert decision.fallback is True
-    assert decision.fallback_reason is not None
-    assert decision.crop_bounds == (0, 0, 32, 32)
+    assert decision.fallback_reason == "view_center_range_exceeds_crop"
+
+
+def test_native_source_shape_input_is_only_inspected_and_never_mutated():
+    source_shape = np.array([128, 128], dtype=np.int64)
+    before = source_shape.copy()
+
+    compute_auto_crop_2d_framing(
+        source_shape,
+        2.0,
+        [PhysicalCameraView(camera_viewport_A=80.0)],
+        enabled=True,
+    )
+
+    assert np.array_equal(source_shape, before)
+
+
+@pytest.mark.parametrize(
+    ("view_framings", "reason"),
+    [
+        ([], "missing_view_framing"),
+        ([object()], "invalid_view_framing"),
+    ],
+)
+def test_invalid_or_missing_physical_view_falls_back_to_native_frame(
+    view_framings, reason
+):
+    decision = compute_auto_crop_2d_framing(
+        (64, 64),
+        2.0,
+        view_framings,
+        enabled=True,
+    )
+
+    assert decision.fallback is True
+    assert decision.fallback_reason == reason
+    assert decision.crop_bounds == (0, 0, 64, 64)
+
+
+def test_camera_viewport_larger_than_native_frame_falls_back():
+    decision = compute_auto_crop_2d_framing(
+        (64, 64),
+        2.0,
+        [PhysicalCameraView(camera_viewport_A=130.0)],
+        enabled=True,
+    )
+
+    assert decision.fallback is True
+    assert decision.fallback_reason == "camera_viewport_out_of_bounds"
+    assert decision.crop_bounds == (0, 0, 64, 64)
+
+
+def test_projection_shift_that_moves_crop_outside_native_frame_falls_back():
+    decision = compute_auto_crop_2d_framing(
+        (64, 64),
+        2.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=40.0,
+                projection_shift_pixels=(30.0, 0.0),
+            )
+        ],
+        enabled=True,
+    )
+
+    assert decision.fallback is True
+    assert decision.fallback_reason == "crop_out_of_bounds"
+    assert decision.crop_bounds == (0, 0, 64, 64)
+
+
+def test_view_center_outside_native_frame_falls_back_before_merging_views():
+    decision = compute_auto_crop_2d_framing(
+        (64, 64),
+        2.0,
+        [
+            PhysicalCameraView(
+                camera_viewport_A=40.0,
+                projection_shift_pixels=(40.0, 0.0),
+            )
+        ],
+        enabled=True,
+    )
+
+    assert decision.fallback is True
+    assert decision.fallback_reason == "view_center_out_of_bounds"
+
+
+@pytest.mark.parametrize("native_pixel_size_A", [0.0, np.nan, "not-a-number"])
+def test_enabled_auto_crop_invalid_native_pixel_size_falls_back(
+    native_pixel_size_A,
+):
+    decision = compute_auto_crop_2d_framing(
+        (64, 64),
+        native_pixel_size_A,
+        [PhysicalCameraView(camera_viewport_A=40.0)],
+        enabled=True,
+    )
+
+    assert decision.fallback is True
+    assert decision.fallback_reason == "invalid_native_pixel_size"
+    assert decision.crop_bounds == (0, 0, 64, 64)
+
+
+def test_invalid_source_shape_is_rejected_before_enabled_fallback():
+    view = [PhysicalCameraView(camera_viewport_A=40.0)]
+    with pytest.raises(ValueError, match="square"):
+        compute_auto_crop_2d_framing((64, 32), 0.0, view, enabled=True)
+
+
+def test_disabled_auto_crop_still_rejects_invalid_native_pixel_size():
+    with pytest.raises(ValueError, match="positive"):
+        compute_auto_crop_2d_framing((64, 64), 0.0, [], enabled=False)
+
+
+def test_physical_camera_view_normalizes_immutable_metadata():
+    shift = np.array([2.0, -3.0], dtype=np.float32)
+    view = PhysicalCameraView(
+        camera_viewport_A=np.float32(40.0),
+        projection_shift_pixels=shift,
+    )
+    shift[0] = 999.0
+
+    assert view.camera_viewport_A == 40.0
+    assert view.projection_shift_pixels == (2.0, -3.0)
+    assert view.as_dict() == {
+        "camera_viewport_A": 40.0,
+        "projection_shift_pixels": [2.0, -3.0],
+        "display_roll_degrees": 0.0,
+    }
+
+
+def test_set_auto_crop_2d_limits_changes_only_display_limits():
+    decision = compute_auto_crop_2d_framing(
+        (32, 32),
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=16.0)],
+        enabled=True,
+    )
+
+    class Axis:
+        def __init__(self):
+            self.xlim = None
+            self.ylim = None
+
+        def set_xlim(self, *values):
+            self.xlim = values
+
+        def set_ylim(self, *values):
+            self.ylim = values
+
+    axis = Axis()
+    set_auto_crop_2d_limits(axis, decision)
+
+    assert axis.xlim == (7.5, 23.5)
+    assert axis.ylim == (23.5, 7.5)
+
+    with pytest.raises(TypeError, match="AutoCropDecision"):
+        set_auto_crop_2d_limits(axis, object())
+
+
+def test_decision_keeps_legacy_metadata_slots_empty_for_physical_framing():
+    decision = compute_auto_crop_2d_framing(
+        (32, 32),
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=16.0)],
+        enabled=True,
+    )
+
+    assert isinstance(decision, AutoCropDecision)
+    assert decision.foreground_bounds is None
+    assert decision.silhouette_bounds is None
+    assert decision.as_dict()["foreground_bounds"] is None
+    assert decision.as_dict()["silhouette_bounds"] is None

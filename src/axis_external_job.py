@@ -115,6 +115,7 @@ def run_axis_search_job(
         matching_map = volume_input.matching_map
         map_pixel_size_A = volume_input.matching_pixel_size_A
         rendering_map = volume_input.rendering_map
+        rendering_pixel_size_A = volume_input.rendering_pixel_size_A
         timings["input-loading"] = {
             "elapsed_seconds": monotonic() - stage_started_at
         }
@@ -237,6 +238,7 @@ def run_axis_search_job(
                     rendering_map=rendering_map,
                     class_pixel_size_A=class_pixel_size_A,
                     map_pixel_size_A=map_pixel_size_A,
+                    rendering_pixel_size_A=rendering_pixel_size_A,
                     config=config,
                     proximity_config=proximity_config,
                     axis_rolls=axis_rolls,

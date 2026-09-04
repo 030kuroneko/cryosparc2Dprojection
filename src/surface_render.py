@@ -307,14 +307,9 @@ def get_surface_silhouette_bounds(
         rotation_matrix,
         display_roll_degrees=display_roll_degrees,
     )
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
     from mpl_toolkits.mplot3d import proj3d
 
-    figure = Figure(figsize=(1.0, 1.0), dpi=100)
-    FigureCanvasAgg(figure)
-    axis = figure.add_axes(_RENDER_AXES_RECT, projection="3d")
-    _configure_surface_render_axis(axis, surface, background="dark")
+    figure, axis = _new_surface_render_context(surface)
     projected_x, projected_y, _ = proj3d.proj_transform(
         vertices[:, 0],
         vertices[:, 1],
@@ -335,6 +330,138 @@ def get_surface_silhouette_bounds(
         right=float(np.clip(right, 0.0, 1.0)),
         bottom=float(np.clip(bottom, 0.0, 1.0)),
     )
+
+
+def get_surface_camera_viewport_A(
+    surface,
+    *,
+    rendering_pixel_size_A,
+):
+    """Return the fixed orthographic camera viewport in physical units.
+
+    The viewport is measured from the same Matplotlib projection context used
+    by :func:`get_surface_silhouette_bounds`, including its axes rectangle,
+    box-aspect zoom, and orthographic projection.  Surface vertices are stored
+    in native-grid voxel units, so the returned viewport is converted directly
+    with the rendering map's pixel size.
+    """
+
+    if not isinstance(surface, SurfaceModel):
+        raise TypeError("surface must be a SurfaceModel")
+    voxel_size_A = _surface_voxel_size_A(
+        surface,
+        rendering_pixel_size_A=rendering_pixel_size_A,
+    )
+    figure, axis = _new_surface_render_context(surface)
+    from mpl_toolkits.mplot3d import proj3d
+
+    origin = np.zeros((1, 3), dtype=float)
+    basis_x = np.array([[1.0, 0.0, 0.0]], dtype=float)
+    basis_y = np.array([[0.0, 1.0, 0.0]], dtype=float)
+    projected_origin = proj3d.proj_transform(
+        origin[:, 0], origin[:, 1], origin[:, 2], axis.get_proj()
+    )
+    projected_x = proj3d.proj_transform(
+        basis_x[:, 0], basis_x[:, 1], basis_x[:, 2], axis.get_proj()
+    )
+    projected_y = proj3d.proj_transform(
+        basis_y[:, 0], basis_y[:, 1], basis_y[:, 2], axis.get_proj()
+    )
+    origin_display = axis.transData.transform(
+        np.column_stack((projected_origin[0], projected_origin[1]))
+    )[0]
+    x_display = axis.transData.transform(
+        np.column_stack((projected_x[0], projected_x[1]))
+    )[0]
+    y_display = axis.transData.transform(
+        np.column_stack((projected_y[0], projected_y[1]))
+    )[0]
+    pixels_per_unit_x = float(abs(x_display[0] - origin_display[0]))
+    pixels_per_unit_y = float(abs(y_display[1] - origin_display[1]))
+    canvas_width, canvas_height = figure.canvas.get_width_height()
+    if (
+        not np.isfinite(pixels_per_unit_x)
+        or not np.isfinite(pixels_per_unit_y)
+        or pixels_per_unit_x <= 0.0
+        or pixels_per_unit_y <= 0.0
+    ):
+        raise ValueError("surface camera viewport has invalid projection scale")
+    viewport_x = float(canvas_width) / pixels_per_unit_x
+    viewport_y = float(canvas_height) / pixels_per_unit_y
+    if not np.isclose(viewport_x, viewport_y, rtol=1e-6, atol=1e-6):
+        raise ValueError("surface camera viewport is not square")
+    viewport_A = max(viewport_x, viewport_y) * voxel_size_A
+    if not np.isfinite(viewport_A) or viewport_A <= 0.0:
+        raise ValueError("surface camera viewport is invalid or non-finite")
+    return float(viewport_A)
+
+
+def _new_surface_render_context(surface):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    figure = Figure(figsize=(1.0, 1.0), dpi=100)
+    FigureCanvasAgg(figure)
+    axis = figure.add_axes(_RENDER_AXES_RECT, projection="3d")
+    _configure_surface_render_axis(axis, surface, background="dark")
+    return figure, axis
+
+
+def _surface_voxel_size_A(surface, *, rendering_pixel_size_A):
+    """Validate surface units and return the native voxel size in angstroms.
+
+    ``build_surface_model`` maps every sampled-grid axis back to native voxel
+    coordinates before storing the mesh.  The sampling metadata remains part
+    of the model for provenance and validation, but it no longer contributes
+    a single approximate scale factor here.
+    """
+
+    try:
+        rendering_pixel_size_A = float(rendering_pixel_size_A)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "rendering pixel size must be a finite positive value"
+        ) from error
+    if not np.isfinite(rendering_pixel_size_A) or rendering_pixel_size_A <= 0.0:
+        raise ValueError("rendering pixel size must be a finite positive value")
+    sampling_grid = surface.sampling_grid
+    if not isinstance(sampling_grid, ResolvedSurfaceSamplingGrid):
+        raise ValueError("surface sampling metadata is required")
+    _surface_endpoint_spacing_xyz(sampling_grid)
+    return rendering_pixel_size_A
+
+
+def _surface_endpoint_spacing_xyz(sampling_grid):
+    """Return sampled-to-native endpoint spacing in stored ``xyz`` order."""
+
+    try:
+        original_shape_zyx = np.asarray(
+            sampling_grid.original_shape, dtype=float
+        )
+        sampled_shape_zyx = np.asarray(
+            sampling_grid.sampled_shape, dtype=float
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("surface sampling metadata is invalid") from error
+    if (
+        original_shape_zyx.shape != (3,)
+        or sampled_shape_zyx.shape != (3,)
+        or not np.isfinite(original_shape_zyx).all()
+        or not np.isfinite(sampled_shape_zyx).all()
+        or np.any(original_shape_zyx < 2.0)
+        or np.any(sampled_shape_zyx < 2.0)
+        or np.any(sampled_shape_zyx > original_shape_zyx)
+    ):
+        raise ValueError("surface sampling metadata is invalid")
+    endpoint_spacing_zyx = (
+        (original_shape_zyx - 1.0) / (sampled_shape_zyx - 1.0)
+    )
+    if (
+        not np.isfinite(endpoint_spacing_zyx).all()
+        or np.any(endpoint_spacing_zyx <= 0.0)
+    ):
+        raise ValueError("surface sampling metadata has invalid voxel scale")
+    return endpoint_spacing_zyx[::-1]
 
 
 def _rotate_surface_vertices(vertices, rotation_matrix, *, display_roll_degrees):
@@ -423,6 +550,7 @@ def build_surface_model(
             raise ValueError(
                 "resolved surface sampling grid does not match rendering map shape"
             )
+    endpoint_spacing_xyz = _surface_endpoint_spacing_xyz(sampling_grid)
     sampled_shape = sampling_grid.sampled_shape
     try:
         sampled = (
@@ -486,9 +614,16 @@ def build_surface_model(
         raise ValueError(message)
 
     surface_level = float(surface_level)
-    vertices_xyz = vertices_zyx[:, ::-1]
+    vertices_xyz = np.asarray(vertices_zyx[:, ::-1], dtype=float).copy()
     vertices_xyz -= (np.asarray(sampled.shape[::-1], dtype=float) - 1) / 2
-    normals_xyz = normals_zyx[:, ::-1]
+    # scipy.ndimage.zoom maps the sampled endpoints to the native endpoints.
+    # Convert centered sampled-grid coordinates to centered native-grid voxel
+    # coordinates independently per axis; a single scalar is incorrect for a
+    # non-cubic map whose rounded sampled dimensions have different ratios.
+    vertices_xyz *= endpoint_spacing_xyz
+    normals_xyz = np.asarray(normals_zyx[:, ::-1], dtype=float).copy()
+    # Normals transform by the inverse transpose of the coordinate scale.
+    normals_xyz /= endpoint_spacing_xyz
     normals_xyz /= np.linalg.norm(normals_xyz, axis=1, keepdims=True)
     return SurfaceModel(
         vertices=vertices_xyz,

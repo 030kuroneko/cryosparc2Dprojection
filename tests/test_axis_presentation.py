@@ -5,6 +5,7 @@ from typing import get_type_hints
 
 from cryosparc_2d_projection.auto_crop import (
     AutoCropDecision,
+    PhysicalCameraView,
     compute_auto_crop_2d_framing,
 )
 from cryosparc_2d_projection.axis_presentation import (
@@ -17,7 +18,6 @@ from cryosparc_2d_projection.axis_presentation import (
     parse_axis_rolls,
 )
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
-from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 
 
 def _marker_panel():
@@ -126,8 +126,9 @@ def test_exact_axis_result_applies_auto_crop_only_to_2d_panels():
     panel = np.zeros((32, 32), dtype=np.float32)
     panel[12:20, 13:21] = 1.0
     decision = compute_auto_crop_2d_framing(
-        [np.flipud(panel)],
-        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        panel.shape,
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=16.0)],
         enabled=True,
     )
     row = ExactAxisResultPanelRow(
@@ -152,9 +153,9 @@ def test_exact_axis_result_applies_auto_crop_only_to_2d_panels():
     assert figure.axes[1].images[0].get_array().shape == (32, 32)
     assert np.array_equal(figure.axes[0].images[0].get_array(), np.flipud(panel))
     assert np.array_equal(figure.axes[1].images[0].get_array(), np.flipud(panel))
-    assert np.allclose(figure.axes[0].get_xlim(), (8.5, 24.5))
+    assert np.allclose(figure.axes[0].get_xlim(), (7.5, 23.5))
     assert np.allclose(figure.axes[0].get_ylim(), (23.5, 7.5))
-    assert np.allclose(figure.axes[1].get_xlim(), (8.5, 24.5))
+    assert np.allclose(figure.axes[1].get_xlim(), (7.5, 23.5))
     assert np.allclose(figure.axes[1].get_ylim(), (23.5, 7.5))
     assert figure.axes[2].images[0].get_array().shape == (8, 8, 3)
 
@@ -170,8 +171,9 @@ def test_disabled_axis_auto_crop_keeps_rendered_preview_pixel_identical():
     panel = np.zeros((32, 32), dtype=np.float32)
     panel[12:20, 13:21] = 1.0
     decision = compute_auto_crop_2d_framing(
-        [panel],
-        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        panel.shape,
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=16.0)],
         enabled=True,
     )
     row = ExactAxisResultPanelRow(

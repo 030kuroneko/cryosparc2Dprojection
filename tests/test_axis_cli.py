@@ -17,7 +17,13 @@ from cryosparc_2d_projection.surface_render import ClassRenderOptions
 from tests.external_job_backend import InMemoryExternalJobBackend
 
 
-def _axis_job(directory, *, class_size=32, log_error=None):
+def _axis_job(
+    directory,
+    *,
+    class_size=32,
+    rendering_pixel_size_A=1.0,
+    log_error=None,
+):
     directory.mkdir(parents=True, exist_ok=True)
     volume = np.zeros((class_size, class_size, class_size), dtype=np.float32)
     volume[
@@ -46,7 +52,14 @@ def _axis_job(directory, *, class_size=32, log_error=None):
                 ],
             ),
             "volume": np.array(
-                [("volume.mrc", 1.0, "volume_sharp.mrc", 1.0)],
+                [
+                    (
+                        "volume.mrc",
+                        1.0,
+                        "volume_sharp.mrc",
+                        rendering_pixel_size_A,
+                    )
+                ],
                 dtype=[
                     ("map/path", "U128"),
                     ("map/psize_A", "f4"),
@@ -435,6 +448,50 @@ def test_axis_cli_exposes_opt_in_auto_crop_2d_flag():
 
     assert build_parser().parse_args(common).auto_crop_2d is False
     assert build_parser().parse_args([*common, "--auto-crop-2d"]).auto_crop_2d is True
+
+
+def test_axis_cli_uses_rendering_pixel_size_for_physical_auto_crop(tmp_path):
+    fine_directory = tmp_path / "fine"
+    coarse_directory = tmp_path / "coarse"
+    fine_job = _axis_job(
+        fine_directory,
+        class_size=64,
+        rendering_pixel_size_A=1.0,
+    )
+    coarse_job = _axis_job(
+        coarse_directory,
+        class_size=64,
+        rendering_pixel_size_A=2.0,
+    )
+    common = [
+        "--url", "https://cryosparc.example.test",
+        "--project", "P1",
+        "--workspace", "W1",
+        "--select-job", "J10",
+        "--volume-job", "J20",
+        "--axis-family", "2fold",
+        "--top-n", "1",
+        "--render-map", "sharpened",
+        "--render-grid-size", "16",
+        "--auto-crop-2d",
+    ]
+
+    assert main(common, client_factory=lambda _url: AxisClient(fine_job)) == 0
+    assert main(common, client_factory=lambda _url: AxisClient(coarse_job)) == 0
+
+    fine_metadata = json.loads(
+        (fine_directory / "axis_search_results.json").read_text()
+    )
+    coarse_metadata = json.loads(
+        (coarse_directory / "axis_search_results.json").read_text()
+    )
+    fine_viewport = fine_metadata["presentation"]["auto_crop_2d"][
+        "camera_viewport_A"
+    ]
+    coarse_viewport = coarse_metadata["presentation"]["auto_crop_2d"][
+        "camera_viewport_A"
+    ]
+    assert coarse_viewport == pytest.approx(2.0 * fine_viewport)
 
 
 def test_axis_cli_rejects_removed_axis_families_option():

@@ -18,13 +18,12 @@ from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     SurfaceRenderMemoryError,
     build_surface_model,
-    get_surface_silhouette_bounds,
+    get_surface_camera_viewport_A,
     resolve_surface_sampling_grid,
     write_camera_view_render,
 )
 from cryosparc_2d_projection.auto_crop import (
-    AUTO_CROP_MAX_ZOOM,
-    AUTO_CROP_PADDING_FRACTION,
+    PhysicalCameraView,
     compute_auto_crop_2d_framing,
 )
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
@@ -167,8 +166,7 @@ def run_external_orientation_job(
         if comparison_options.auto_crop_2d:
             artifact["presentation"]["auto_crop_2d"] = {
                 "enabled": True,
-                "max_zoom": AUTO_CROP_MAX_ZOOM,
-                "padding_fraction": AUTO_CROP_PADDING_FRACTION,
+                "mode": "physical_camera_fov",
             }
         job_directory = adapter.resource_directory
         output_path = job_directory / "class_orientations.json"
@@ -293,6 +291,33 @@ def run_external_orientation_job(
             "grid_size": sampling_grid.effective_grid_size,
             **sampling_grid.as_dict(),
         }
+        camera_viewport_A = None
+        camera_viewport_error = None
+        if comparison_options.auto_crop_2d:
+            try:
+                camera_viewport_A = get_surface_camera_viewport_A(
+                    surface,
+                    rendering_pixel_size_A=rendering_pixel_size,
+                )
+                camera_viewport_A = PhysicalCameraView(
+                    camera_viewport_A=camera_viewport_A
+                ).camera_viewport_A
+            except (TypeError, ValueError, OverflowError) as error:
+                camera_viewport_error = error
+                warning_message = (
+                    "WARNING: Auto-Cropped 2D Framing fell back for all classes: "
+                    f"invalid physical camera viewport ({error})"
+                )
+                adapter.log(warning_message)
+                if warning_callback is not None:
+                    try:
+                        warning_callback(warning_message)
+                    except Exception:
+                        pass
+            else:
+                artifact["presentation"]["auto_crop_2d"][
+                    "camera_viewport_A"
+                ] = float(camera_viewport_A)
         render_paths = {}
         framing_decisions = {}
         for class_entry in artifact["classes"]:
@@ -368,40 +393,42 @@ def run_external_orientation_job(
                 raise
             if comparison_options.auto_crop_2d:
                 class_id = class_entry["class_id"]
-                displayed_projection = np.flipud(
-                    native_projection_results[class_id].matched_projection
-                )
-                silhouette_error = None
-                try:
-                    silhouette_bounds = get_surface_silhouette_bounds(
-                        surface,
-                        camera.rotation_matrix,
+                template = class_averages[class_id]
+                native_projection = native_projection_results[class_id]
+                camera_view = None
+                if camera_viewport_error is None:
+                    camera_view = PhysicalCameraView(
+                        camera_viewport_A=camera_viewport_A,
+                        projection_shift_pixels=tuple(
+                            native_projection.projection_shift_pixels
+                        ),
                     )
-                except (TypeError, ValueError) as error:
-                    silhouette_bounds = None
-                    silhouette_error = error
                 decision = compute_auto_crop_2d_framing(
-                    [displayed_projection],
-                    [] if silhouette_bounds is None else [silhouette_bounds],
+                    native_projection.matched_projection.shape,
+                    template.pixel_size_A,
+                    [] if camera_view is None else [camera_view],
                     enabled=True,
                 )
                 if decision.fallback:
                     reason = decision.fallback_reason
-                    if silhouette_error is not None:
-                        reason = f"{reason}; {silhouette_error}"
-                    warning_message = (
-                        "WARNING: Auto-Cropped 2D Framing fell back for "
-                        f"Class {class_entry['class_number']}: {reason}"
-                    )
-                    adapter.log(warning_message)
-                    if warning_callback is not None:
-                        try:
-                            warning_callback(warning_message)
-                        except Exception:
-                            pass
+                    if camera_viewport_error is None:
+                        warning_message = (
+                            "WARNING: Auto-Cropped 2D Framing fell back for "
+                            f"Class {class_entry['class_number']}: {reason}"
+                        )
+                        adapter.log(warning_message)
+                        if warning_callback is not None:
+                            try:
+                                warning_callback(warning_message)
+                            except Exception:
+                                pass
                 framing_decisions[class_id] = decision
+                framing_metadata = decision.as_dict()
+                framing_metadata["camera_view"] = (
+                    None if camera_view is None else camera_view.as_dict()
+                )
                 class_entry["presentation"] = {
-                    "auto_crop_2d": decision.as_dict()
+                    "auto_crop_2d": framing_metadata
                 }
         write_chimerax_bundle(
             job_directory / "chimerax",

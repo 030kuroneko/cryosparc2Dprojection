@@ -4,6 +4,7 @@ from PIL import Image
 
 from cryosparc_2d_projection.surface_render import (
     build_surface_model,
+    get_surface_camera_viewport_A,
     get_surface_silhouette_bounds,
     write_camera_view_render,
     ClassRenderOptions,
@@ -12,6 +13,150 @@ from cryosparc_2d_projection.surface_render import (
     SurfaceRenderMemoryError,
     recommend_lower_surface_grid_size,
 )
+
+
+def test_surface_camera_viewport_uses_the_renderers_fixed_orthographic_frame():
+    coordinates = np.linspace(-1.0, 1.0, 25)
+    z, y, x = np.meshgrid(coordinates, coordinates, coordinates, indexing="ij")
+    volume = (1.0 - np.sqrt(x**2 + y**2 + z**2)).astype(np.float32)
+    surface = build_surface_model(volume, surface_level=0.2, max_size=25)
+
+    viewport_A = get_surface_camera_viewport_A(
+        surface,
+        rendering_pixel_size_A=2.0,
+    )
+
+    doubled = get_surface_camera_viewport_A(
+        surface,
+        rendering_pixel_size_A=4.0,
+    )
+    assert doubled == pytest.approx(2.0 * viewport_A)
+    assert viewport_A > 0.0
+
+
+def test_surface_camera_viewport_uses_native_coordinate_units_for_any_sampling_grid():
+    vertices = np.asarray(
+        [
+            [-2.0, -2.0, -2.0],
+            [2.0, 2.0, 2.0],
+        ]
+    )
+    grid_native = resolve_surface_sampling_grid((40, 40, 40), requested_grid_size=40)
+    grid_downsampled = resolve_surface_sampling_grid(
+        (40, 40, 40), requested_grid_size=20
+    )
+    native_surface = SurfaceModel(
+        vertices=vertices,
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+        sampling_grid=grid_native,
+    )
+    downsampled_surface = SurfaceModel(
+        vertices=vertices,
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+        sampling_grid=grid_downsampled,
+    )
+
+    native_viewport = get_surface_camera_viewport_A(
+        native_surface,
+        rendering_pixel_size_A=2.0,
+    )
+    downsampled_viewport = get_surface_camera_viewport_A(
+        downsampled_surface,
+        rendering_pixel_size_A=2.0,
+    )
+
+    # SurfaceModel vertices are already in native voxel units, regardless of
+    # which extraction grid produced them.
+    assert downsampled_viewport == pytest.approx(native_viewport)
+
+
+def test_surface_camera_viewport_matches_the_fixed_render_transform():
+    grid = resolve_surface_sampling_grid((40, 40, 40), requested_grid_size=40)
+    surface = SurfaceModel(
+        vertices=np.asarray([[-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]]),
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+        sampling_grid=grid,
+    )
+
+    viewport_A = get_surface_camera_viewport_A(
+        surface,
+        rendering_pixel_size_A=2.0,
+    )
+
+    assert viewport_A == pytest.approx(18.7460212724, rel=1e-6)
+
+
+def test_surface_camera_viewport_rejects_missing_or_invalid_units_metadata():
+    surface = SurfaceModel(
+        vertices=np.asarray([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]),
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+    )
+
+    with pytest.raises(ValueError, match="metadata"):
+        get_surface_camera_viewport_A(surface, rendering_pixel_size_A=2.0)
+    with pytest.raises(ValueError, match="positive"):
+        get_surface_camera_viewport_A(surface, rendering_pixel_size_A=0.0)
+
+
+def test_surface_camera_viewport_rejects_non_finite_final_product():
+    surface = SurfaceModel(
+        vertices=np.asarray([[-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]]),
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+        sampling_grid=resolve_surface_sampling_grid((40, 40, 40)),
+    )
+
+    with pytest.raises(ValueError, match="finite"):
+        get_surface_camera_viewport_A(
+            surface,
+            rendering_pixel_size_A=1e308,
+        )
+
+
+def test_surface_camera_viewport_accepts_native_units_with_non_cubic_sampling():
+    vertices = np.asarray([[-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]])
+    native_grid = resolve_surface_sampling_grid(
+        (11, 7, 5), requested_grid_size=11
+    )
+    rounded_grid = resolve_surface_sampling_grid(
+        (11, 7, 5), requested_grid_size=8
+    )
+    native_surface = SurfaceModel(
+        vertices=vertices,
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+        sampling_grid=native_grid,
+    )
+    rounded_surface = SurfaceModel(
+        vertices=vertices,
+        faces=np.empty((0, 3), dtype=np.int32),
+        normals=np.empty((0, 3), dtype=float),
+        surface_level=0.5,
+        sampling_grid=rounded_grid,
+    )
+
+    native_viewport = get_surface_camera_viewport_A(
+        native_surface,
+        rendering_pixel_size_A=2.0,
+    )
+    rounded_viewport = get_surface_camera_viewport_A(
+        rounded_surface,
+        rendering_pixel_size_A=2.0,
+    )
+
+    # A manually constructed model follows the same public unit contract as a
+    # built model: its vertices are native-grid voxel coordinates.
+    assert rounded_viewport == pytest.approx(native_viewport)
 
 
 def test_surface_renderer_exposes_normalized_rotated_silhouette_bounds():
@@ -312,6 +457,31 @@ def test_surface_model_exposes_resolved_surface_sampling_metadata():
     assert surface.sampling_grid.requested_grid_size == 6
     assert surface.sampling_grid.sampled_shape == (6, 4, 2)
     assert surface.sampling_grid.was_downsampled is True
+
+
+@pytest.mark.parametrize("gradient_axis", [0, 1, 2])
+def test_downsampled_surface_vertices_use_native_voxel_coordinates(gradient_axis):
+    """Downsampling must preserve each native axis' physical extent."""
+    shape_zyx = (11, 7, 5)
+    coordinates = np.indices(shape_zyx, dtype=float)[gradient_axis]
+    volume = (coordinates / (shape_zyx[gradient_axis] - 1)).astype(np.float32)
+
+    surface = build_surface_model(volume, surface_level=0.5, max_size=8)
+
+    expected_half_extent_xyz = (np.asarray(shape_zyx[::-1], dtype=float) - 1) / 2
+    expected_min_xyz = -expected_half_extent_xyz
+    expected_max_xyz = expected_half_extent_xyz
+    varying_axis_xyz = 2 - gradient_axis
+    for axis_xyz in range(3):
+        if axis_xyz == varying_axis_xyz:
+            assert np.allclose(surface.vertices[:, axis_xyz], 0.0)
+        else:
+            assert np.min(surface.vertices[:, axis_xyz]) == pytest.approx(
+                expected_min_xyz[axis_xyz]
+            )
+            assert np.max(surface.vertices[:, axis_xyz]) == pytest.approx(
+                expected_max_xyz[axis_xyz]
+            )
 
 
 def test_surface_model_uses_the_pre_resolved_sampling_grid_object():

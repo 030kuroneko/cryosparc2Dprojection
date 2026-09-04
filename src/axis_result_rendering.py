@@ -22,8 +22,7 @@ from cryosparc_2d_projection.axis_presentation import (
     create_axis_result_figure,
 )
 from cryosparc_2d_projection.auto_crop import (
-    AUTO_CROP_MAX_ZOOM,
-    AUTO_CROP_PADDING_FRACTION,
+    PhysicalCameraView,
     compute_auto_crop_2d_framing,
 )
 from cryosparc_2d_projection.axis_search import (
@@ -42,7 +41,7 @@ from cryosparc_2d_projection.scoring import compute_diagnostic_band_limited_scor
 from cryosparc_2d_projection.surface_render import (
     ClassRenderOptions,
     build_surface_model,
-    get_surface_silhouette_bounds,
+    get_surface_camera_viewport_A,
     resolve_surface_sampling_grid,
     write_camera_view_render,
 )
@@ -84,6 +83,7 @@ class AxisResultRenderingRequest:
     rendering_map: np.ndarray
     class_pixel_size_A: float
     map_pixel_size_A: float
+    rendering_pixel_size_A: float
     config: AxisSearchConfig
     proximity_config: AxisProximityConfig
     axis_rolls: dict[str, float]
@@ -248,6 +248,17 @@ def _render_to_staging(request, directory, warnings):
     except Exception as error:
         raise _output_error(request, "camera_view_surface", error) from error
 
+    camera_viewport_A = None
+    camera_viewport_error = None
+    if request.comparison_options.auto_crop_2d:
+        try:
+            camera_viewport_A = get_surface_camera_viewport_A(
+                surface,
+                rendering_pixel_size_A=request.rendering_pixel_size_A,
+            )
+        except (TypeError, ValueError, OverflowError) as error:
+            camera_viewport_error = error
+
     render_size = request.comparison_options.resolve_render_size(
         request.render_options.image_size
     )
@@ -333,10 +344,11 @@ def _render_to_staging(request, directory, warnings):
             auto_crop_decision = _compute_axis_auto_crop_decision(
                 request,
                 warnings,
-                surface=surface,
                 candidate=candidate,
                 native_exact=native_exact,
                 native_near=None,
+                camera_viewport_A=camera_viewport_A,
+                camera_viewport_error=camera_viewport_error,
                 display_roll=display_roll,
             )
             try:
@@ -401,11 +413,11 @@ def _render_to_staging(request, directory, warnings):
             auto_crop_decision = _compute_axis_auto_crop_decision(
                 request,
                 warnings,
-                surface=surface,
                 candidate=candidate,
                 native_exact=native_exact,
                 native_near=native_near,
-                near_rotation_matrix=refined.near_axis_rotation_matrix,
+                camera_viewport_A=camera_viewport_A,
+                camera_viewport_error=camera_viewport_error,
                 display_roll=display_roll,
             )
             try:
@@ -554,6 +566,7 @@ def _render_to_staging(request, directory, warnings):
         sampling_grid,
         surface,
         render_size,
+        camera_viewport_A,
         timings,
     )
     try:
@@ -669,51 +682,57 @@ def _compute_axis_auto_crop_decision(
     request,
     warnings,
     *,
-    surface,
     candidate,
     native_exact,
     native_near,
-    near_rotation_matrix=None,
+    camera_viewport_A,
+    camera_viewport_error=None,
     display_roll=0.0,
 ):
     if not request.comparison_options.auto_crop_2d:
         return None
-    projections = [
-        _roll_projection_for_auto_crop(
-            native_exact["matched_projection"], display_roll
-        )
-    ]
-    rotations = [candidate.exact_rotation_matrix]
-    if native_near is not None:
-        projections.append(
-            _roll_projection_for_auto_crop(
-                native_near["matched_projection"], display_roll
+    view_framings = []
+    view_error = camera_viewport_error
+    if view_error is None:
+        try:
+            view_framings.append(
+                PhysicalCameraView(
+                    camera_viewport_A=camera_viewport_A,
+                    projection_shift_pixels=tuple(
+                        native_exact["shift_xy_pixels"]
+                    ),
+                    display_roll_degrees=display_roll,
+                )
             )
-        )
-        rotations.append(near_rotation_matrix)
-    try:
-        silhouettes = [
-            get_surface_silhouette_bounds(
-                surface,
-                rotation,
-                display_roll_degrees=display_roll,
-            )
-            for rotation in rotations
-        ]
-    except (TypeError, ValueError):
-        silhouettes = []
+            if native_near is not None:
+                view_framings.append(
+                    PhysicalCameraView(
+                        camera_viewport_A=camera_viewport_A,
+                        projection_shift_pixels=tuple(
+                            native_near["shift_xy_pixels"]
+                        ),
+                        display_roll_degrees=display_roll,
+                    )
+                )
+        except (TypeError, ValueError, OverflowError) as error:
+            view_framings = []
+            view_error = error
     decision = compute_auto_crop_2d_framing(
-        projections,
-        silhouettes,
+        native_exact["matched_projection"].shape,
+        native_exact["pixel_size_A"],
+        view_framings,
         enabled=True,
     )
     if decision.fallback:
+        reason = decision.fallback_reason
+        if view_error is not None:
+            reason = f"invalid physical camera viewport ({view_error})"
         event = AxisResultRenderingEvent(
             AxisResultRenderingEventCode.WARNING,
             "warning",
             "result-rendering",
             "Auto-Cropped 2D Framing fell back for "
-            f"Class {candidate.class_number}: {decision.fallback_reason}",
+            f"Class {candidate.class_number}: {reason}",
             family_name=candidate.family_name,
             class_number=candidate.class_number,
             output_name="axis_search_preview",
@@ -721,27 +740,6 @@ def _compute_axis_auto_crop_decision(
         warnings.append(event)
         _notify(request.warning_callback, event)
     return decision
-
-
-def _roll_projection_for_auto_crop(projection, display_roll):
-    displayed = np.flipud(np.asarray(projection))
-    border = np.concatenate(
-        [
-            displayed[0, :],
-            displayed[-1, :],
-            displayed[1:-1, 0],
-            displayed[1:-1, -1],
-        ]
-    )
-    background = float(np.median(border))
-    return (
-        apply_axis_display_roll(
-            displayed - background,
-            display_roll,
-            background="dark",
-        )
-        + background
-    )
 
 
 def _result_row(
@@ -810,6 +808,7 @@ def _artifact(
     sampling_grid,
     surface,
     render_size,
+    camera_viewport_A,
     timings,
 ):
     artifact = {
@@ -855,9 +854,12 @@ def _artifact(
     if request.comparison_options.auto_crop_2d:
         artifact["presentation"]["auto_crop_2d"] = {
             "enabled": True,
-            "max_zoom": AUTO_CROP_MAX_ZOOM,
-            "padding_fraction": AUTO_CROP_PADDING_FRACTION,
+            "mode": "physical_camera_fov",
         }
+        if camera_viewport_A is not None:
+            artifact["presentation"]["auto_crop_2d"][
+                "camera_viewport_A"
+            ] = float(camera_viewport_A)
     return artifact
 
 

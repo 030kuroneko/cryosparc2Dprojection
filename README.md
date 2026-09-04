@@ -28,8 +28,14 @@ surface, and rendering overrides shown by `--help`.
 Pass `--auto-crop-2d` to opt into presentation-only framing of the 2D panels.
 For a refined result, one common frame is used across the Class Average and
 both Near-/Exact-Axis Matched Projection panels; axis-roll is applied before
-that frame is computed. Native scientific arrays, MRCS outputs, thumbnails,
-and Camera View PNGs remain unchanged.
+that frame is computed. The frame follows the Camera View Render's fixed
+orthographic physical field of view, converted from Å to native pixels. A
+single-view center follows Projection Shift. Axis exact/near views use their
+display-rolled centers and center the shared frame at the midpoint of their
+per-axis center range. If that range exceeds the common physical viewport, or
+the resulting frame cannot fit the native image, the complete native frame is
+used. Native scientific arrays, MRCS outputs, thumbnails, and Camera View PNGs
+remain unchanged.
 
 Exact-Axis Ranking uses Search Projections of at most 128 pixels per side.
 For each roll angle, a band-limited, soft-masked FFT normalized-correlation map
@@ -211,16 +217,19 @@ This changes only Class Result raster presentation. It does not alter the Class
 Average, Search Projection, native-grid Matched Projection, Surface Sampling
 Grid, camera search, or matching scores.
 
-With `--auto-crop-2d`, each Class Result uses the native Matched Projection to
-estimate particle foreground and the renderer's rotated surface silhouette to
-choose a shared display frame for the Class Average and Matched Projection.
-The frame is applied with display axes limits, so all source and scientific
-arrays retain their native shape and values. The raw foreground occupancy is
-matched to the Camera View Render silhouette while retaining the required
-foreground padding; the accepted foreground-size policy provides the natural
-zoom safety bound. Unreliable foreground or silhouette bounds fall back to the
-complete native frame and record the reason in the result JSON metadata. The
-option does not crop standalone thumbnails or Camera View Render PNGs.
+With `--auto-crop-2d`, each Class Result uses the Camera View Render's fixed
+orthographic physical field of view as a shared presentation viewport for the
+Class Average and Matched Projection. The physical viewport is converted from
+Å to native pixels using the Class Average pixel size. A single-view center
+follows Projection Shift. Axis exact/near views apply display roll and share a
+viewport centered at the midpoint of their per-axis display-center range.
+Framing does not inspect image contrast, noise, or thresholds. The frame is
+applied with display axes limits, so all source and scientific arrays retain
+their native shape and values. Missing or invalid physical units, a multi-view
+center range larger than the common viewport, or a resulting crop outside the
+native frame fall back to the complete native frame and record the reason in
+result JSON metadata. The option does not crop standalone
+thumbnails or Camera View Render PNGs.
 
 Camera selection and the raw search score use a bounded Search Projection of
 at most 128 pixels per side. After selecting the camera, the job regenerates a

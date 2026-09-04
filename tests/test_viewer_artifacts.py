@@ -5,8 +5,10 @@ from PIL import Image
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from scipy.ndimage import label as label_components
 
-from cryosparc_2d_projection.auto_crop import compute_auto_crop_2d_framing
-from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
+from cryosparc_2d_projection.auto_crop import (
+    PhysicalCameraView,
+    compute_auto_crop_2d_framing,
+)
 from cryosparc_2d_projection.viewer import (
     create_class_preview_figure,
     create_class_preview_pages,
@@ -127,8 +129,9 @@ def test_class_result_applies_one_auto_crop_decision_to_both_2d_panels(tmp_path)
     render_path = tmp_path / "class_001_exact.png"
     Image.new("RGB", (8, 8), "white").save(render_path)
     decision = compute_auto_crop_2d_framing(
-        [np.flipud(class_average)],
-        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        class_average.shape,
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=16.0)],
         enabled=True,
     )
 
@@ -147,9 +150,9 @@ def test_class_result_applies_one_auto_crop_decision_to_both_2d_panels(tmp_path)
     assert displayed_class.shape == displayed_projection.shape == (32, 32)
     assert np.array_equal(displayed_class, np.flipud(class_average))
     assert np.array_equal(displayed_projection, np.flipud(class_average))
-    assert np.allclose(page.axes[0].get_xlim(), (8.5, 24.5))
+    assert np.allclose(page.axes[0].get_xlim(), (7.5, 23.5))
     assert np.allclose(page.axes[0].get_ylim(), (23.5, 7.5))
-    assert np.allclose(page.axes[1].get_xlim(), (8.5, 24.5))
+    assert np.allclose(page.axes[1].get_xlim(), (7.5, 23.5))
     assert np.allclose(page.axes[1].get_ylim(), (23.5, 7.5))
     assert page.axes[2].images[0].get_array().shape == (8, 8, 3)
 
@@ -167,8 +170,9 @@ def test_disabled_auto_crop_keeps_rendered_preview_pixel_identical(tmp_path):
         {0: render_path},
     )
     decision = compute_auto_crop_2d_framing(
-        [np.flipud(class_average)],
-        [SurfaceSilhouetteBounds(0.25, 0.25, 0.75, 0.75)],
+        class_average.shape,
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=16.0)],
         enabled=True,
     )
 
@@ -189,7 +193,7 @@ def test_disabled_auto_crop_keeps_rendered_preview_pixel_identical(tmp_path):
     )
 
 
-def test_auto_crop_aligns_the_rendered_matched_panel_with_camera_silhouette(
+def test_auto_crop_aligns_the_rendered_matched_panel_with_physical_camera_fov(
     tmp_path,
 ):
     size = 128
@@ -237,9 +241,11 @@ def test_auto_crop_aligns_the_rendered_matched_panel_with_camera_silhouette(
     class_average = SimpleNamespace(image=matched_projection)
     camera = SimpleNamespace(match_score=0.9)
     orientation = SimpleNamespace(particle_count=1, angular_spread_degrees=0.0)
-    silhouette = SurfaceSilhouetteBounds(0.1425, 0.1425, 0.8575, 0.8575)
     decision = compute_auto_crop_2d_framing(
-        [matched_projection], [silhouette], enabled=True
+        matched_projection.shape,
+        1.0,
+        [PhysicalCameraView(camera_viewport_A=82.0)],
+        enabled=True,
     )
     assert decision.crop_shape == (82, 82)
 

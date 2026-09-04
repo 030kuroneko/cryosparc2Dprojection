@@ -3,36 +3,60 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import label as label_components
-from scipy.ndimage import rank_filter
-
-from cryosparc_2d_projection.surface_render import SurfaceSilhouetteBounds
 
 
-AUTO_CROP_PADDING_FRACTION = 0.10
-# The normalized raster-visible foreground begins above the old 5% raw peak
-# proxy; this cutoff keeps weak connected halos out of the framing bounds.
-AUTO_CROP_DISPLAY_VISIBILITY_CUTOFF = 0.065
-_MIN_COMPONENT_FRACTION = 0.005
-_MIN_BBOX_FRACTION = 0.10
-_MIN_BBOX_PIXELS = 5
-# Use a high, deterministic percentile so a few extreme pixels do not define
-# the display foreground while the threshold still tracks visible signal.
-_ROBUST_PEAK_PERCENTILE = 99.9
-# Keep a compact valid foreground from being reduced below the accepted bbox
-# size when the high percentile has only a few signal samples to work with.
-_FALLBACK_ROBUST_PEAK_PERCENTILE = 99.0
-# A display peak must have local spatial support.  This removes isolated
-# hot-pixels without suppressing the clustered extrema present in projections.
-_LOCAL_PEAK_SUPPORT_FRACTION = 0.75
-_MIN_LOCAL_PEAK_SUPPORT = 3
-# Accepted foreground boxes are at least 10% of the native frame on each
-# axis.  With the 10% display padding on both sides, 8 1/3x is the greatest
-# zoom that can still retain that accepted padded box.  This is a natural
-# safety bound, rather than a presentation-specific fixed zoom choice.
-AUTO_CROP_MAX_ZOOM = 1.0 / (
-    _MIN_BBOX_FRACTION * (1.0 + 2.0 * AUTO_CROP_PADDING_FRACTION)
-)
+@dataclass(frozen=True)
+class PhysicalCameraView:
+    """Physical framing information shared by one or more 2D panels.
+
+    ``camera_viewport_A`` is the square orthographic viewport of the matching
+    Camera View Render.  Projection shifts use raw native-array coordinates:
+    ``(x, y)`` with rows increasing downward.  The final display flips rows,
+    and an optional display roll is applied after that flip.
+    """
+
+    camera_viewport_A: float
+    projection_shift_pixels: tuple[float, float] = (0.0, 0.0)
+    display_roll_degrees: float = 0.0
+
+    def __post_init__(self):
+        try:
+            viewport = float(self.camera_viewport_A)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "camera viewport must be a finite positive value"
+            ) from error
+        if not np.isfinite(viewport) or viewport <= 0.0:
+            raise ValueError("camera viewport must be a finite positive value")
+
+        try:
+            shift = tuple(float(value) for value in self.projection_shift_pixels)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "projection shift must contain two finite values"
+            ) from error
+        if len(shift) != 2 or not all(np.isfinite(value) for value in shift):
+            raise ValueError("projection shift must contain two finite values")
+
+        try:
+            roll = float(self.display_roll_degrees)
+        except (TypeError, ValueError) as error:
+            raise ValueError("display roll must be finite") from error
+        if not np.isfinite(roll):
+            raise ValueError("display roll must be finite")
+
+        object.__setattr__(self, "camera_viewport_A", viewport)
+        object.__setattr__(self, "projection_shift_pixels", shift)
+        object.__setattr__(self, "display_roll_degrees", roll)
+
+    def as_dict(self):
+        return {
+            "camera_viewport_A": float(self.camera_viewport_A),
+            "projection_shift_pixels": [
+                float(value) for value in self.projection_shift_pixels
+            ],
+            "display_roll_degrees": float(self.display_roll_degrees),
+        }
 
 
 @dataclass(frozen=True)
@@ -42,7 +66,7 @@ class AutoCropDecision:
     source_shape: tuple[int, int]
     crop_bounds: tuple[int, int, int, int]
     foreground_bounds: tuple[int, int, int, int] | None
-    silhouette_bounds: SurfaceSilhouetteBounds | None
+    silhouette_bounds: object | None
     zoom: float
     clamped: bool
     fallback: bool
@@ -84,113 +108,109 @@ class AutoCropDecision:
                 "bottom": int(foreground_bottom),
             }
         payload["silhouette_bounds"] = (
-            None if self.silhouette_bounds is None else self.silhouette_bounds.as_dict()
+            None
+            if self.silhouette_bounds is None
+            else self.silhouette_bounds.as_dict()
         )
         return payload
 
 
 def compute_auto_crop_2d_framing(
-    matched_projections,
-    silhouette_bounds,
+    source_shape,
+    native_pixel_size_A,
+    view_framings,
     *,
     enabled,
 ):
-    """Compute one common display crop for one or more matched projections.
+    """Compute a display crop from the Camera View Render's physical FOV.
 
-    The arrays are only inspected.  The returned bounds are applied as
-    Matplotlib display limits; no scientific or display array is sliced.
+    The crop side is the camera's square physical viewport converted to native
+    pixels.  All views use that common side; when multiple views are present,
+    their display centers are merged with the midpoint of the per-axis center
+    range.  Input image arrays are intentionally absent from this seam, so
+    contrast, noise, and display interpolation cannot affect framing.
     """
 
-    projections = _coerce_projections(matched_projections)
-    shape = projections[0].shape
-    if any(projection.shape != shape for projection in projections[1:]):
-        raise ValueError("matched projections must share one square shape")
-    height, width = shape
+    shape = _coerce_source_shape(source_shape)
+    full_bounds = (0, 0, shape[1], shape[0])
     if type(enabled) is not bool:
         raise ValueError("auto-crop enabled flag must be boolean")
-    full_bounds = (0, 0, width, height)
+    try:
+        pixel_size = _coerce_native_pixel_size(native_pixel_size_A)
+    except (OverflowError, TypeError, ValueError):
+        if enabled:
+            return _fallback(shape, "invalid_native_pixel_size")
+        raise
     if not enabled:
-        return AutoCropDecision(
-            source_shape=shape,
-            crop_bounds=full_bounds,
-            foreground_bounds=None,
-            silhouette_bounds=None,
+        return _decision(
+            shape,
+            full_bounds,
             zoom=1.0,
-            clamped=False,
             fallback=False,
             enabled=False,
         )
 
     try:
-        bounds = _coerce_silhouette_bounds(silhouette_bounds)
-    except ValueError:
-        return _fallback(shape, "invalid_silhouette_bounds")
-    if not bounds:
-        return _fallback(shape, "missing_silhouette_bounds")
+        views = _coerce_view_framings(view_framings)
+    except (TypeError, ValueError):
+        return _fallback(shape, "invalid_view_framing")
+    if not views:
+        return _fallback(shape, "missing_view_framing")
+
     try:
-        target = _union_silhouette_bounds(bounds)
-    except ValueError as error:
-        return _fallback(shape, str(error))
-    foreground, foreground_failure = _detect_foreground_bounds(projections)
-    if foreground is None:
-        return _fallback(shape, foreground_failure or "unreliable_foreground")
-    foreground_left, foreground_top, foreground_right, foreground_bottom = foreground
-    raw_foreground_width = foreground_right - foreground_left
-    raw_foreground_height = foreground_bottom - foreground_top
-    horizontal_padding = max(
-        2.0,
-        raw_foreground_width * AUTO_CROP_PADDING_FRACTION,
+        requested_side = max(view.camera_viewport_A for view in views) / pixel_size
+        if not np.isfinite(requested_side):
+            return _fallback(shape, "invalid_camera_viewport")
+        side = int(np.ceil(requested_side))
+    except (OverflowError, ValueError):
+        return _fallback(shape, "invalid_camera_viewport")
+    if side < 2:
+        return _fallback(shape, "camera_viewport_too_small")
+    if side > shape[0] or side > shape[1]:
+        return _fallback(shape, "camera_viewport_out_of_bounds")
+
+    centers = np.asarray(
+        [_display_center(shape, view) for view in views],
+        dtype=float,
     )
-    vertical_padding = max(
-        2.0,
-        raw_foreground_height * AUTO_CROP_PADDING_FRACTION,
-    )
-    required_horizontal_padding = int(np.ceil(horizontal_padding))
-    required_vertical_padding = int(np.ceil(vertical_padding))
+    if not np.isfinite(centers).all():
+        return _fallback(shape, "invalid_view_center")
     if (
-        foreground_left < required_horizontal_padding
-        or foreground_top < required_vertical_padding
-        or width - foreground_right < required_horizontal_padding
-        or height - foreground_bottom < required_vertical_padding
+        centers[:, 0].min() < 0.0
+        or centers[:, 0].max() > shape[1] - 1.0
+        or centers[:, 1].min() < 0.0
+        or centers[:, 1].max() > shape[0] - 1.0
     ):
-        return _fallback(shape, "foreground_padding_out_of_bounds")
-    foreground_width = raw_foreground_width + 2.0 * horizontal_padding
-    foreground_height = raw_foreground_height + 2.0 * vertical_padding
-    desired_side = max(
-        raw_foreground_width,
-        raw_foreground_height,
-    ) / max(target.width_fraction, target.height_fraction)
-    minimum_side = int(
-        np.ceil(max(width, height) / AUTO_CROP_MAX_ZOOM)
+        return _fallback(shape, "view_center_out_of_bounds")
+    if (
+        centers[:, 0].max() - centers[:, 0].min() > side
+        or centers[:, 1].max() - centers[:, 1].min() > side
+    ):
+        return _fallback(shape, "view_center_range_exceeds_crop")
+    shared_center = np.array(
+        [
+            (centers[:, 0].min() + centers[:, 0].max()) / 2.0,
+            (centers[:, 1].min() + centers[:, 1].max()) / 2.0,
+        ],
+        dtype=float,
     )
-    requested_side = int(np.ceil(desired_side))
-    padding_side = int(np.ceil(max(foreground_width, foreground_height)))
-    minimum_side = max(minimum_side, padding_side)
-    clamped = requested_side < minimum_side
-    side = min(max(width, height), max(minimum_side, requested_side))
-    if side >= width or side >= height:
-        return AutoCropDecision(
-            source_shape=shape,
-            crop_bounds=full_bounds,
-            foreground_bounds=foreground,
-            silhouette_bounds=target,
-            zoom=1.0,
-            clamped=False,
-            fallback=False,
-            enabled=True,
-        )
-    center_x = (foreground_left + foreground_right) / 2.0
-    center_y = (foreground_top + foreground_bottom) / 2.0
-    left = _centered_start(center_x, side, width)
-    top = _centered_start(center_y, side, height)
-    crop_bounds = (left, top, left + side, top + side)
-    return AutoCropDecision(
-        source_shape=shape,
-        crop_bounds=crop_bounds,
-        foreground_bounds=foreground,
-        silhouette_bounds=target,
-        zoom=float(width / side),
-        clamped=clamped,
+    # Bounds are half-open pixel indices.  Their selected pixel centers span
+    # ``left`` through ``left + side - 1``, so center the span using its
+    # half-width rather than the geometric half-side.  np.rint is deliberate:
+    # it gives deterministic nearest-integer, ties-to-even rounding when a
+    # half-pixel center cannot be represented by integer bounds.
+    half_pixel_span = (side - 1) / 2.0
+    left = int(np.rint(shared_center[0] - half_pixel_span))
+    top = int(np.rint(shared_center[1] - half_pixel_span))
+    right = left + side
+    bottom = top + side
+    if left < 0 or top < 0 or right > shape[1] or bottom > shape[0]:
+        return _fallback(shape, "crop_out_of_bounds")
+
+    return _decision(
+        shape,
+        (left, top, right, bottom),
+        zoom=float(shape[1] / side),
         fallback=False,
         enabled=True,
     )
@@ -214,188 +234,86 @@ def set_auto_crop_2d_limits(axis, decision):
         raise TypeError("axis must expose set_xlim and set_ylim") from error
 
 
-def _coerce_projections(matched_projections):
-    if isinstance(matched_projections, np.ndarray) and matched_projections.ndim == 2:
-        projections = (np.asarray(matched_projections, dtype=np.float32),)
-    else:
-        try:
-            projections = tuple(
-                np.asarray(projection, dtype=np.float32)
-                for projection in matched_projections
-            )
-        except TypeError as error:
-            raise ValueError("matched projections must be a non-empty sequence") from error
-    if not projections or any(
-        projection.ndim != 2
-        or projection.shape[0] != projection.shape[1]
-        or projection.shape[0] < 2
-        for projection in projections
+def _coerce_source_shape(source_shape):
+    try:
+        shape = tuple(source_shape)
+    except (TypeError, ValueError) as error:
+        raise ValueError("source shape must contain two dimensions") from error
+    if (
+        len(shape) != 2
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, np.integer))
+            or int(value) < 2
+            for value in shape
+        )
+        or int(shape[0]) != int(shape[1])
     ):
-        raise ValueError("matched projections must be non-empty square 2D images")
-    return projections
+        raise ValueError("source shape must be a square 2D shape of at least 2")
+    return (int(shape[0]), int(shape[1]))
 
 
-def _coerce_silhouette_bounds(values):
-    if isinstance(values, SurfaceSilhouetteBounds):
+def _coerce_native_pixel_size(native_pixel_size_A):
+    try:
+        pixel_size = float(native_pixel_size_A)
+    except (TypeError, ValueError) as error:
+        raise ValueError("native pixel size must be a finite positive value") from error
+    if not np.isfinite(pixel_size) or pixel_size <= 0.0:
+        raise ValueError("native pixel size must be a finite positive value")
+    return pixel_size
+
+
+def _coerce_view_framings(values):
+    if isinstance(values, PhysicalCameraView):
         return (values,)
     try:
         values = tuple(values)
     except TypeError as error:
-        raise ValueError("silhouette bounds must be a bound or sequence") from error
-    if not values:
-        return ()
-    if not all(isinstance(value, SurfaceSilhouetteBounds) for value in values):
-        raise ValueError("silhouette bounds must use SurfaceSilhouetteBounds")
+        raise ValueError("view framings must be a view or sequence") from error
+    if not all(isinstance(value, PhysicalCameraView) for value in values):
+        raise ValueError("view framings must use PhysicalCameraView")
     return values
 
 
-def _union_silhouette_bounds(values):
-    return SurfaceSilhouetteBounds(
-        left=min(value.left for value in values),
-        top=min(value.top for value in values),
-        right=max(value.right for value in values),
-        bottom=max(value.bottom for value in values),
-    )
-
-
-def _detect_foreground_bounds(projections):
-    detected = []
-    for projection in projections:
-        if not np.isfinite(projection).all():
-            return None, "non_finite_projection"
-        border = np.concatenate(
-            [
-                projection[0, :],
-                projection[-1, :],
-                projection[1:-1, 0],
-                projection[1:-1, -1],
-            ]
-        )
-        background = float(np.median(border))
-        deviations = np.abs(projection - background)
-        mad = float(np.median(np.abs(border - background)))
-        bounds, failure = _foreground_bounds_for_peak(
-            deviations,
-            projection.shape,
-            _ROBUST_PEAK_PERCENTILE,
-            mad,
-        )
-        if bounds is None and failure == "foreground_bbox_too_small":
-            bounds, failure = _foreground_bounds_for_peak(
-                deviations,
-                projection.shape,
-                _FALLBACK_ROBUST_PEAK_PERCENTILE,
-                mad,
-            )
-        if bounds is None:
-            return None, failure
-        detected.append(bounds)
-    return (
-        (
-            min(bounds[0] for bounds in detected),
-            min(bounds[1] for bounds in detected),
-            max(bounds[2] for bounds in detected),
-            max(bounds[3] for bounds in detected),
-        ),
-        None,
-    )
-
-
-def _foreground_bounds_for_peak(deviations, shape, percentile, mad):
-    provisional_peak = float(np.percentile(deviations, percentile))
-    threshold = max(
-        6.0 * mad,
-        AUTO_CROP_DISPLAY_VISIBILITY_CUTOFF * provisional_peak,
-    )
-    if threshold <= 0.0 or not np.isfinite(threshold):
-        return None, "constant_or_low_dynamic_range"
-    largest, failure = _largest_component(deviations >= threshold)
-    if largest is None:
-        return None, failure
-
-    # Estimate the display peak from a spatially supported part of the
-    # dominant signal component.  The provisional mask supplies the component
-    # identity; the local support check prevents one extreme pixel, including
-    # one attached to the component, from setting the final threshold.
-    supported_peak = _spatially_supported_peak(deviations, largest)
-    if supported_peak is not None:
-        threshold = max(
-            6.0 * mad,
-            AUTO_CROP_DISPLAY_VISIBILITY_CUTOFF * supported_peak,
-        )
-    foreground = deviations >= threshold
-    largest, failure = _largest_component(foreground)
-    if largest is None:
-        return None, failure
-
-    bounds, failure = _bounds_for_component(largest, shape)
-    return (bounds, None) if bounds is not None else (None, failure)
-
-
-def _bounds_for_component(component, shape):
-    area = int(np.count_nonzero(component))
-    minimum_component_area = max(
-        1,
-        int(np.ceil(np.prod(shape) * _MIN_COMPONENT_FRACTION)),
-    )
-    if area < minimum_component_area:
-        return None, "foreground_component_too_small"
-    rows, columns = np.nonzero(component)
-    top, bottom = int(rows.min()), int(rows.max()) + 1
-    left, right = int(columns.min()), int(columns.max()) + 1
+def _display_center(shape, view):
     height, width = shape
-    if left == 0 or top == 0 or right == width or bottom == height:
-        return None, "foreground_touches_boundary"
-    minimum_bbox_width = max(_MIN_BBOX_PIXELS, int(np.ceil(width * _MIN_BBOX_FRACTION)))
-    minimum_bbox_height = max(
-        _MIN_BBOX_PIXELS,
-        int(np.ceil(height * _MIN_BBOX_FRACTION)),
+    shift_x, shift_y_raw = view.projection_shift_pixels
+    # Native projection rows increase downward; the displayed image is
+    # vertically flipped before any optional counter-clockwise display roll.
+    shift_x_display = float(shift_x)
+    shift_y_display = -float(shift_y_raw)
+    radians = np.deg2rad(view.display_roll_degrees)
+    cosine = float(np.cos(radians))
+    sine = float(np.sin(radians))
+    rolled_x = cosine * shift_x_display + sine * shift_y_display
+    rolled_y = -sine * shift_x_display + cosine * shift_y_display
+    return (
+        (width - 1.0) / 2.0 + rolled_x,
+        (height - 1.0) / 2.0 + rolled_y,
     )
-    if right - left < minimum_bbox_width or bottom - top < minimum_bbox_height:
-        return None, "foreground_bbox_too_small"
-    return (left, top, right, bottom), None
 
 
-def _largest_component(mask):
-    components, count = label_components(mask)
-    if count == 0:
-        return None, "no_foreground_component"
-    sizes = np.bincount(components.ravel())[1:]
-    largest_label = int(np.argmax(sizes)) + 1
-    return components == largest_label, None
-
-
-def _spatially_supported_peak(deviations, component):
-    local_rank = rank_filter(
-        deviations,
-        rank=9 - _MIN_LOCAL_PEAK_SUPPORT,
-        size=3,
-        mode="constant",
-        cval=0.0,
+def _decision(shape, crop_bounds, *, zoom, fallback, enabled, reason=None):
+    return AutoCropDecision(
+        source_shape=shape,
+        crop_bounds=crop_bounds,
+        foreground_bounds=None,
+        silhouette_bounds=None,
+        zoom=float(zoom),
+        clamped=False,
+        fallback=bool(fallback),
+        fallback_reason=reason,
+        enabled=bool(enabled),
     )
-    supported = component & (deviations > 0.0) & (
-        local_rank >= _LOCAL_PEAK_SUPPORT_FRACTION * deviations
-    )
-    if not np.any(supported):
-        return None
-    return float(np.max(deviations[supported]))
-
-
-def _centered_start(center, side, extent):
-    start = int(np.rint(center - side / 2.0))
-    return min(max(0, start), extent - side)
 
 
 def _fallback(shape, reason):
     height, width = shape
-    return AutoCropDecision(
-        source_shape=shape,
-        crop_bounds=(0, 0, width, height),
-        foreground_bounds=None,
-        silhouette_bounds=None,
+    return _decision(
+        shape,
+        (0, 0, width, height),
         zoom=1.0,
-        clamped=False,
         fallback=True,
-        fallback_reason=str(reason),
         enabled=True,
+        reason=str(reason),
     )

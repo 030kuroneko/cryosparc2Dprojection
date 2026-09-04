@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import numpy as np
 from cryosparc import mrc
@@ -151,6 +152,44 @@ def _inconsistent_native_box_external_job(tmp_path):
         [
             ("templates.mrcs", 0, 1.5),
             ("templates_class_002.mrcs", 1, 1.5),
+        ],
+        dtype=[
+            ("blob/path", "U128"),
+            ("blob/idx", "i4"),
+            ("blob/psize_A", "f4"),
+        ],
+    )
+    return project, job
+
+
+def _two_class_contrast_external_job(tmp_path):
+    project, job = _native_grid_external_job(tmp_path, class_size=64)
+    _, base_stack = mrc.read(tmp_path / "templates.mrcs")
+    base = np.asarray(base_stack[0], dtype=np.float32)
+    rows, columns = np.indices(base.shape)
+    structured_noise = 0.01 * np.sin(rows * 0.73 + columns * 0.41)
+    contrast = (0.15 * base + structured_noise).astype(np.float32)
+    mrc.write(
+        tmp_path / "templates_contrast.mrcs",
+        np.stack([np.zeros_like(base), contrast]),
+        1.5,
+    )
+    job.datasets["select_2d_particles"] = np.array(
+        [(101, 0, 0.0), (102, 1, 0.0)],
+        dtype=[
+            ("uid", "u8"),
+            ("alignments2D/class", "i4"),
+            ("alignments2D/pose", "f8"),
+        ],
+    )
+    job.datasets["refinement_particles"] = np.array(
+        [(101, [0.0, 0.0, 0.0]), (102, [0.0, 0.0, 0.0])],
+        dtype=[("uid", "u8"), ("alignments3D/pose", "f8", (3,))],
+    )
+    job.datasets["select_2d_templates"] = np.array(
+        [
+            ("templates.mrcs", 0, 1.5),
+            ("templates_contrast.mrcs", 1, 1.5),
         ],
         dtype=[
             ("blob/path", "U128"),
@@ -466,6 +505,17 @@ def test_external_job_auto_crops_only_comparison_2d_panels(tmp_path):
     results = json.loads((tmp_path / "class_orientations.json").read_text())
     framing = results["classes"][0]["presentation"]["auto_crop_2d"]
     assert results["presentation"]["auto_crop_2d"]["enabled"] is True
+    assert results["presentation"]["auto_crop_2d"]["mode"] == (
+        "physical_camera_fov"
+    )
+    assert framing["camera_view"]["camera_viewport_A"] == pytest.approx(
+        results["presentation"]["auto_crop_2d"]["camera_viewport_A"]
+    )
+    assert framing["camera_view"]["projection_shift_pixels"] == pytest.approx(
+        results["classes"][0]["camera"]["projection_shift_pixels"]
+    )
+    assert framing["foreground_bounds"] is None
+    assert framing["silhouette_bounds"] is None
     assert framing["fallback"] is False
     assert framing["zoom"] > 1.0
     assert framing["crop_shape"][0] == framing["crop_shape"][1]
@@ -492,18 +542,102 @@ def test_external_job_auto_crops_only_comparison_2d_panels(tmp_path):
         assert camera_view.size == (64, 64)
 
 
-def test_external_job_auto_crop_silhouette_failure_reports_one_warning(
+def test_external_job_uses_one_physical_fov_for_contrast_and_noise_variants(
+    tmp_path, monkeypatch
+):
+    project, job = _two_class_contrast_external_job(tmp_path)
+    real_project = external_job_module.project_native_matched_projection
+    real_viewport = external_job_module.get_surface_camera_viewport_A
+    native_results = []
+    viewport_calls = []
+
+    def varied_native_projection(*args, **kwargs):
+        result = real_project(*args, **kwargs)
+        index = len(native_results)
+        matched = np.asarray(result.matched_projection, dtype=np.float32)
+        if index == 0:
+            varied = matched * 0.1
+        else:
+            rows, columns = np.indices(matched.shape)
+            varied = matched * 3.0 + 0.2 * np.sin(rows + columns)
+        varied_result = replace(
+            result,
+            matched_projection=varied.astype(np.float32),
+            projection_shift_pixels=np.zeros(2, dtype=float),
+        )
+        native_results.append(varied_result)
+        return varied_result
+
+    def count_viewport(*args, **kwargs):
+        viewport = real_viewport(*args, **kwargs)
+        viewport_calls.append(viewport)
+        return viewport
+
+    monkeypatch.setattr(
+        external_job_module,
+        "project_native_matched_projection",
+        varied_native_projection,
+    )
+    monkeypatch.setattr(
+        external_job_module,
+        "get_surface_camera_viewport_A",
+        count_viewport,
+    )
+
+    run_external_orientation_job(
+        project,
+        workspace_uid="W1",
+        select_2d_source=SourceOutput("J10", "particles_selected"),
+        select_templates_source=SourceOutput("J10", "templates_selected"),
+        refinement_source=SourceOutput("J20", "particles"),
+        volume_source=SourceOutput("J20", "volume"),
+        symmetry="C1",
+        render_options=ClassRenderOptions(
+            image_size=64,
+            grid_size=8,
+            surface_level=0.5,
+        ),
+        comparison_options=ComparisonRenderOptions(
+            dpi=100,
+            page_size=2,
+            auto_crop_2d=True,
+        ),
+    )
+
+    assert len(native_results) == 2
+    assert not np.array_equal(
+        native_results[0].matched_projection,
+        native_results[1].matched_projection,
+    )
+    _, saved_projections = mrc.read(tmp_path / "class_projections.mrcs")
+    assert np.array_equal(
+        saved_projections,
+        np.stack([result.matched_projection for result in native_results]),
+    )
+    assert len(viewport_calls) == 1
+    results = json.loads((tmp_path / "class_orientations.json").read_text())
+    framings = [
+        result["presentation"]["auto_crop_2d"]
+        for result in results["classes"]
+    ]
+    assert framings[0]["crop_bounds"] == framings[1]["crop_bounds"]
+    assert framings[0]["crop_shape"] == framings[1]["crop_shape"]
+    assert framings[0]["zoom"] == pytest.approx(framings[1]["zoom"])
+    assert framings[0]["camera_view"] == framings[1]["camera_view"]
+
+
+def test_external_job_auto_crop_invalid_camera_viewport_reports_one_warning(
     tmp_path, monkeypatch
 ):
     project, job = _native_grid_external_job(tmp_path, class_size=64)
 
-    def fail_silhouette(*args, **kwargs):
-        raise ValueError("invalid surface geometry")
+    def fail_camera_viewport(*args, **kwargs):
+        raise ValueError("invalid surface units")
 
     monkeypatch.setattr(
         external_job_module,
-        "get_surface_silhouette_bounds",
-        fail_silhouette,
+        "get_surface_camera_viewport_A",
+        fail_camera_viewport,
     )
     callback_messages = []
 
@@ -534,7 +668,17 @@ def test_external_job_auto_crop_silhouette_failure_reports_one_warning(
     assert len(logged) == 1
     assert len(callbacks) == 1
     assert logged[0] == callbacks[0]
-    assert "invalid surface geometry" in logged[0]
+    assert "invalid surface units" in logged[0]
+    results = json.loads((tmp_path / "class_orientations.json").read_text())
+    framing = results["classes"][0]["presentation"]["auto_crop_2d"]
+    assert framing["fallback"] is True
+    assert framing["crop_bounds"] == {
+        "left": 0,
+        "top": 0,
+        "right": 64,
+        "bottom": 64,
+    }
+    assert framing["camera_view"] is None
 
 
 def test_external_job_auto_crop_preserves_scientific_outputs(tmp_path):

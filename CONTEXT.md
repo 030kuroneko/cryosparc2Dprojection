@@ -53,7 +53,7 @@ The raster dimensions and display scale of a static three-column Class Result. C
 _Avoid_: Matching resolution, map resolution, projection calculation grid
 
 **Auto-Cropped 2D Framing**:
-An optional presentation-only framing in which the Class Average and Matched Projection of each Class Result share a crop derived from the aligned Matched Projection, making its foreground occupy the same panel proportion as that result's Camera View Render silhouette. An unreliable framing falls back to the complete native frame; framing metadata may be recorded for reproducibility, but framing never alters native image data, projections, scoring, or other scientific calculations.
+An optional presentation-only framing in which the Class Average and Matched Projection of each Class Result share a viewport derived from the Camera View Render's fixed orthographic physical field of view. The physical viewport is converted from Å to native pixels using the Class Average pixel size. A single-view center follows Projection Shift; axis exact/near views apply the display roll and center their shared viewport at the midpoint of the per-axis display-center range. Framing does not inspect image contrast, noise, or thresholds. Missing or invalid physical units, a multi-view center range larger than the common viewport, or a resulting crop outside the native frame falls back to the complete native frame; framing metadata may be recorded for reproducibility, but framing never alters native image data, projections, scoring, or Class Camera Orientation.
 _Avoid_: Scientific image crop, projection resampling, particle extraction
 
 **Match Confidence**:
