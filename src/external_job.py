@@ -522,10 +522,12 @@ def run_external_orientation_job(
             ),
         )
         adapter.attach_tile_preview(
-            thumbnail_path,
+            job_directory
+            / "renders"
+            / f"class_{first_class_id + 1:03d}_comparison.png",
             warning_formatter=lambda error: (
-                "WARNING: Could not attach matched_projections thumbnail "
-                "to job tile; scientific output remains available. "
+                "WARNING: Could not attach Class Result Preview to job tile; "
+                "scientific output remains available. "
                 f"{type(error).__name__}: {error}"
             ),
         )

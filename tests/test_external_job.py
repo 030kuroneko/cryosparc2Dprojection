@@ -384,7 +384,9 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
     assert thumbnail is None
     thumbnail_path = job.output_images["matched_projections"]
     assert thumbnail_path == tmp_path / "renders" / "matched_projections_thumbnail.png"
-    assert job.tile_images == [thumbnail_path]
+    assert job.tile_images == [
+        tmp_path / "renders" / "class_001_comparison.png"
+    ]
     with Image.open(thumbnail_path) as output_thumbnail:
         assert output_thumbnail.size == (7, 7)
         assert output_thumbnail.mode == "L"
@@ -804,7 +806,7 @@ def test_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
     )
 
 
-def test_tile_thumbnail_upload_failure_is_visible_without_losing_scientific_output(
+def test_class_result_preview_upload_failure_is_visible_without_losing_scientific_output(
     tmp_path,
 ):
     project, job = _native_grid_external_job(
@@ -835,9 +837,10 @@ def test_tile_thumbnail_upload_failure_is_visible_without_losing_scientific_outp
     assert job.output_images["matched_projections"] == (
         tmp_path / "renders" / "matched_projections_thumbnail.png"
     )
+    assert (tmp_path / "renders" / "class_001_comparison.png").is_file()
     assert job.tile_images == []
     assert any(
-        "Could not attach matched_projections thumbnail to job tile" in message
+        "Could not attach Class Result Preview to job tile" in message
         and "scientific output remains available" in message
         and "job tile service unavailable" in message
         for message in job.logs

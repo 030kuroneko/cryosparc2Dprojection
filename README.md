@@ -298,6 +298,10 @@ The created External Job contains:
 - `chimerax/all_classes.cxc` and one ChimeraX script per class;
 - job-log preview pages: configurable three-column Class Results per page.
 
+The job tile uses the lowest Class Number's three-column Class Result as its
+Class Orientation Dashboard Preview. The `matched_projections` output card
+keeps its separate label-free native-grid thumbnail.
+
 CryoSPARC stores class IDs from zero. The JSON includes both `class_id`
 (zero-based) and `class_number` (one-based, matching the UI). Selected classes
 keep their original `blob/idx`, including gaps; they are never renumbered.
