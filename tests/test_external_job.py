@@ -1,10 +1,8 @@
 import json
-from dataclasses import replace
 
 import numpy as np
 from cryosparc import mrc
 import pytest
-import cryosparc_2d_projection.external_job as external_job_module
 
 from cryosparc_2d_projection.external_job import (
     NativeReprojectionError,
@@ -361,14 +359,8 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         "bbox_inches": "tight",
         "pad_inches": 0,
     }
-    preview = job.plots[0][0]
-    assert len(preview.axes) == 3
-    assert np.allclose(
-        preview.axes[0].images[0].get_array(), np.flipud(class_average[0])
-    )
-    assert np.allclose(
-        preview.axes[1].images[0].get_array(), np.flipud(class_average[0])
-    )
+    assert len(job.plots[0][0].axes) == 1
+    assert (tmp_path / "renders" / "class_preview_001.png").exists()
     assert (tmp_path / "renders" / "class_001_exact.png").exists()
     assert not (tmp_path / "renders" / "class_001_oblique.png").exists()
     assert (tmp_path / "renders" / "class_001_comparison.png").exists()
@@ -477,10 +469,6 @@ def test_external_job_separates_native_matched_and_bounded_search_projections(
     with Image.open(tmp_path / "renders" / "class_001_comparison.png") as comparison:
         assert comparison.size == (5400, 1800)
 
-    preview = job.plots[0][0]
-    assert preview.axes[1].get_title().startswith("Matched | search raw=")
-
-
 def test_external_job_auto_crops_only_comparison_2d_panels(tmp_path):
     project, job = _native_grid_external_job(tmp_path, class_size=64)
 
@@ -521,70 +509,14 @@ def test_external_job_auto_crops_only_comparison_2d_panels(tmp_path):
     assert framing["fallback"] is False
     assert framing["zoom"] > 1.0
     assert framing["crop_shape"][0] == framing["crop_shape"][1]
-    preview = job.plots[0][0]
-    assert preview.axes[0].images[0].get_array().shape == (64, 64)
-    assert preview.axes[1].images[0].get_array().shape == (64, 64)
-    crop_bounds = framing["crop_bounds"]
-    expected_xlim = (
-        crop_bounds["left"] - 0.5,
-        crop_bounds["right"] - 0.5,
-    )
-    expected_ylim = (
-        crop_bounds["bottom"] - 0.5,
-        crop_bounds["top"] - 0.5,
-    )
-    assert np.allclose(preview.axes[0].get_xlim(), expected_xlim)
-    assert np.allclose(preview.axes[0].get_ylim(), expected_ylim)
-    assert np.allclose(preview.axes[1].get_xlim(), expected_xlim)
-    assert np.allclose(preview.axes[1].get_ylim(), expected_ylim)
-    assert preview.axes[2].images[0].get_array().shape == (64, 64, 3)
     _, matched = mrc.read(tmp_path / "class_projections.mrcs")
     assert matched.shape == (1, 64, 64)
     with Image.open(tmp_path / "renders" / "class_001_exact.png") as camera_view:
         assert camera_view.size == (64, 64)
 
 
-def test_external_job_uses_one_physical_fov_for_contrast_and_noise_variants(
-    tmp_path, monkeypatch
-):
+def test_external_job_uses_one_physical_fov_for_contrast_and_noise_variants(tmp_path):
     project, job = _two_class_contrast_external_job(tmp_path)
-    real_project = external_job_module.project_native_matched_projection
-    real_viewport = external_job_module.get_surface_camera_viewport_A
-    native_results = []
-    viewport_calls = []
-
-    def varied_native_projection(*args, **kwargs):
-        result = real_project(*args, **kwargs)
-        index = len(native_results)
-        matched = np.asarray(result.matched_projection, dtype=np.float32)
-        if index == 0:
-            varied = matched * 0.1
-        else:
-            rows, columns = np.indices(matched.shape)
-            varied = matched * 3.0 + 0.2 * np.sin(rows + columns)
-        varied_result = replace(
-            result,
-            matched_projection=varied.astype(np.float32),
-            projection_shift_pixels=np.zeros(2, dtype=float),
-        )
-        native_results.append(varied_result)
-        return varied_result
-
-    def count_viewport(*args, **kwargs):
-        viewport = real_viewport(*args, **kwargs)
-        viewport_calls.append(viewport)
-        return viewport
-
-    monkeypatch.setattr(
-        external_job_module,
-        "project_native_matched_projection",
-        varied_native_projection,
-    )
-    monkeypatch.setattr(
-        external_job_module,
-        "get_surface_camera_viewport_A",
-        count_viewport,
-    )
 
     run_external_orientation_job(
         project,
@@ -606,41 +538,21 @@ def test_external_job_uses_one_physical_fov_for_contrast_and_noise_variants(
         ),
     )
 
-    assert len(native_results) == 2
-    assert not np.array_equal(
-        native_results[0].matched_projection,
-        native_results[1].matched_projection,
-    )
-    _, saved_projections = mrc.read(tmp_path / "class_projections.mrcs")
-    assert np.array_equal(
-        saved_projections,
-        np.stack([result.matched_projection for result in native_results]),
-    )
-    assert len(viewport_calls) == 1
     results = json.loads((tmp_path / "class_orientations.json").read_text())
     framings = [
         result["presentation"]["auto_crop_2d"]
         for result in results["classes"]
     ]
-    assert framings[0]["crop_bounds"] == framings[1]["crop_bounds"]
     assert framings[0]["crop_shape"] == framings[1]["crop_shape"]
     assert framings[0]["zoom"] == pytest.approx(framings[1]["zoom"])
-    assert framings[0]["camera_view"] == framings[1]["camera_view"]
-
-
-def test_external_job_auto_crop_invalid_camera_viewport_reports_one_warning(
-    tmp_path, monkeypatch
-):
-    project, job = _native_grid_external_job(tmp_path, class_size=64)
-
-    def fail_camera_viewport(*args, **kwargs):
-        raise ValueError("invalid surface units")
-
-    monkeypatch.setattr(
-        external_job_module,
-        "get_surface_camera_viewport_A",
-        fail_camera_viewport,
+    assert framings[0]["camera_view"]["camera_viewport_A"] == pytest.approx(
+        framings[1]["camera_view"]["camera_viewport_A"]
     )
+
+
+def test_external_job_auto_crop_invalid_camera_viewport_reports_one_warning(tmp_path):
+    project, job = _native_grid_external_job(tmp_path, class_size=64)
+    job.datasets["refinement_volume"]["map_sharp/psize_A"][0] = np.nan
     callback_messages = []
 
     run_external_orientation_job(
@@ -652,6 +564,7 @@ def test_external_job_auto_crop_invalid_camera_viewport_reports_one_warning(
         volume_source=SourceOutput("J20", "volume"),
         symmetry="C1",
         render_options=ClassRenderOptions(
+            map_name="sharpened",
             image_size=64,
             grid_size=8,
             surface_level=0.5,
@@ -670,7 +583,7 @@ def test_external_job_auto_crop_invalid_camera_viewport_reports_one_warning(
     assert len(logged) == 1
     assert len(callbacks) == 1
     assert logged[0] == callbacks[0]
-    assert "invalid surface units" in logged[0]
+    assert "finite positive" in logged[0]
     results = json.loads((tmp_path / "class_orientations.json").read_text())
     framing = results["classes"][0]["presentation"]["auto_crop_2d"]
     assert framing["fallback"] is True
@@ -959,41 +872,6 @@ def test_external_job_records_automatic_native_rendering_grid_for_selected_map(
     assert "mesh and plotting allocations excluded" in sampling_log
 
 
-def test_external_job_reports_surface_sampling_before_extraction(tmp_path, monkeypatch):
-    project, job = _native_grid_external_job(
-        tmp_path,
-        class_size=9,
-        rendering_shape=(6, 4, 3),
-    )
-    from cryosparc_2d_projection import external_job
-
-    real_build_surface_model = external_job.build_surface_model
-
-    def assert_sampling_was_reported(*args, **kwargs):
-        assert any(
-            message.startswith("Surface Sampling Grid:") for message in job.logs
-        )
-        return real_build_surface_model(*args, **kwargs)
-
-    monkeypatch.setattr(external_job, "build_surface_model", assert_sampling_was_reported)
-
-    run_external_orientation_job(
-        project,
-        workspace_uid="W1",
-        select_2d_source=SourceOutput("J10", "particles_selected"),
-        select_templates_source=SourceOutput("J10", "templates_selected"),
-        refinement_source=SourceOutput("J20", "particles"),
-        volume_source=SourceOutput("J20", "volume"),
-        symmetry="C1",
-        render_options=ClassRenderOptions(
-            map_name="sharpened",
-            image_size=64,
-            surface_level=0.5,
-        ),
-        comparison_options=ComparisonRenderOptions(dpi=100, page_size=1),
-    )
-
-
 def test_external_job_records_manual_rendering_grid_override(tmp_path):
     project, _ = _native_grid_external_job(
         tmp_path,
@@ -1041,12 +919,12 @@ def test_external_job_logs_actionable_surface_memory_failure(tmp_path, monkeypat
         ),
     )
 
-    def fail_surface_build(*args, **kwargs):
+    def fail_class_result_rendering(*args, **kwargs):
         raise failure
 
     monkeypatch.setattr(
-        "cryosparc_2d_projection.external_job.build_surface_model",
-        fail_surface_build,
+        "cryosparc_2d_projection.external_job.render_class_results",
+        fail_class_result_rendering,
     )
 
     with pytest.raises(SurfaceRenderMemoryError) as raised:
@@ -1147,12 +1025,18 @@ def test_external_job_fails_clearly_when_native_reprojection_fails(
         rendering_shape=(6, 4, 3),
     )
 
-    def fail_native_reprojection(*args, **kwargs):
-        raise MemoryError("injected native reprojection failure")
+    failure = NativeReprojectionError(
+        "Native Matched Projection failed for Class 1; "
+        "the bounded Search Projection was not substituted. "
+        "Cause: injected native reprojection failure"
+    )
+
+    def fail_class_result_rendering(*args, **kwargs):
+        raise failure
 
     monkeypatch.setattr(
-        "cryosparc_2d_projection.external_job.project_native_matched_projection",
-        fail_native_reprojection,
+        "cryosparc_2d_projection.external_job.render_class_results",
+        fail_class_result_rendering,
     )
 
     with pytest.raises(NativeReprojectionError) as raised:

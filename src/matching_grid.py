@@ -11,6 +11,39 @@ class MatchingGrid:
     pixel_size: float
 
 
+def validate_native_class_grids(class_averages, class_ids):
+    """Require one native grid for a combined Class Result stack."""
+    class_ids = tuple(sorted(class_ids))
+    shapes = {
+        class_id: tuple(class_averages[class_id].image.shape)
+        for class_id in class_ids
+    }
+    if len(set(shapes.values())) != 1:
+        details = "; ".join(
+            f"Class {class_id + 1} {shape}" for class_id, shape in shapes.items()
+        )
+        raise ValueError(
+            "Native Class Average boxes must have one common shape: " + details
+        )
+    pixel_sizes = {
+        class_id: float(class_averages[class_id].pixel_size_A)
+        for class_id in class_ids
+    }
+    reference_pixel_size = next(iter(pixel_sizes.values()))
+    if not all(
+        np.isclose(pixel_size, reference_pixel_size)
+        for pixel_size in pixel_sizes.values()
+    ):
+        details = "; ".join(
+            f"Class {class_id + 1} {pixel_size:g} A/pixel"
+            for class_id, pixel_size in pixel_sizes.items()
+        )
+        raise ValueError(
+            "Native Class Averages must have one common pixel size for MRCS output"
+            ": " + details
+        )
+
+
 def prepare_native_matching_grid(
     class_average,
     volume,

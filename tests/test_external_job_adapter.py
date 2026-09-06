@@ -200,6 +200,30 @@ def test_adapter_stages_template_output_before_publishing(tmp_path):
     assert output["blob/psize_A"].tolist() == [1.5, 1.5]
 
 
+def test_adapter_stages_an_existing_template_stack_without_rewriting_it(tmp_path):
+    backend = InMemoryExternalJobBackend(tmp_path)
+    adapter = CryoSPARCExternalJobAdapter(backend, "W1", job=backend)
+    adapter.add_template_output("projections", title="Projections")
+    stack = np.arange(18, dtype=np.float32).reshape(2, 3, 3)
+    path = tmp_path / "projections.mrcs"
+    mrc.write(path, stack, 1.5)
+    original = path.read_bytes()
+
+    adapter.stage_template_source(
+        "projections",
+        "projections.mrcs",
+        count=2,
+        shape=(3, 3),
+        pixel_size_A=1.5,
+    )
+    adapter.publish()
+
+    assert path.read_bytes() == original
+    output = backend.saved["projections"]
+    assert output["blob/path"].tolist() == [">J99/projections.mrcs"] * 2
+    assert output["blob/idx"].tolist() == [0, 1]
+
+
 def test_adapter_publication_error_names_output_without_rollback(tmp_path):
     class Job:
         uid = "J99"

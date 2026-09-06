@@ -290,6 +290,26 @@ class CryoSPARCExternalJobAdapter:
     def log_plot(self, figure, text, formats, savefig_kw=None):
         return self.job.log_plot(figure, text, formats, savefig_kw=savefig_kw)
 
+    def log_plot_image(self, path, text, formats, *, dpi):
+        """Publish a completed image without exposing plotting objects upstream."""
+        from matplotlib import pyplot as plt
+
+        image = plt.imread(path)
+        height, width = image.shape[:2]
+        figure = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+        axes = figure.add_axes((0, 0, 1, 1))
+        axes.imshow(image)
+        axes.axis("off")
+        try:
+            return self.log_plot(
+                figure,
+                text,
+                formats,
+                savefig_kw={"dpi": dpi, "bbox_inches": "tight", "pad_inches": 0},
+            )
+        finally:
+            plt.close(figure)
+
     def set_status(self, message, callback=None):
         self.safe_log(message)
         if callback is not None:
@@ -312,6 +332,29 @@ class CryoSPARCExternalJobAdapter:
             filename=filename,
             count=len(stack),
             shape=np.asarray(stack).shape[1:],
+            pixel_size_A=pixel_size_A,
+        )
+
+    def stage_template_source(
+        self,
+        name,
+        filename,
+        *,
+        count,
+        shape,
+        pixel_size_A,
+    ):
+        """Stage an MRCS file already written inside this External Job."""
+
+        filename = Path(filename)
+        if not self.path(filename).is_file():
+            raise FileNotFoundError(self.path(filename))
+        self._stage(
+            name,
+            kind="template",
+            filename=filename,
+            count=count,
+            shape=shape,
             pixel_size_A=pixel_size_A,
         )
 

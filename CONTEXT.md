@@ -52,6 +52,10 @@ _Avoid_: Treating `I1`, `I2`, or another unverified convention as an alias
 The 2D class average, Matched Projection, Camera View Render, orientation metadata, match score, and uncertainty for one selected class.
 _Avoid_: Projection only
 
+**Class Result Rendering**:
+The stage that produces an all-or-nothing local Class Result set for the Class Orientation workflow after the Class Camera Orientations have been selected. It builds the shared rendering surface from the Rendering Map and owns Matched Projections, diagnostic scores, Camera View Renders, Auto-Cropped 2D Framing, static previews, fallback reporting, and reproducibility metadata. The set is complete only when every requested Class Result is ready for publication. Interactive Class Volumes, ChimeraX bundles, and CryoSPARC publication remain outside this stage. It is distinct from the Result Rendering stage of an Axis Search Run.
+_Avoid_: Result Rendering, Class Camera Orientation search, partial Class Result set, CryoSPARC publication
+
 **Class Result Presentation Resolution**:
 The raster dimensions and display scale of a static three-column Class Result. Changing it does not alter the Class Average, Matched Projection, Class Camera Orientation, matching scores, or Camera View Render geometry.
 _Avoid_: Matching resolution, map resolution, projection calculation grid
