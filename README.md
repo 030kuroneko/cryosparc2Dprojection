@@ -111,6 +111,63 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
+## Desktop GUI (two main pages)
+
+Start the launcher from this checkout:
+
+```bash
+uv sync
+uv run cryosparc-gui
+```
+
+For an existing activated Conda/Python environment:
+
+```bash
+python -m pip install -e .
+cryosparc-gui
+```
+
+The GUI uses Tk/ttk. Run it on the desktop machine where the command-line
+workflow already works, or use a remote desktop / X forwarding. The Python
+interpreter must include Tk (for example, the `tk` package in a Conda
+environment, or the matching `python3-tk` package for a system Python).
+`python -m tkinter` checks whether that interpreter can open a window.
+No GUI dependency is added to the scientific environment.
+
+1. Enter the CryoSPARC URL, Project UID and Workspace UID at the top.
+   **Login instructions** copies the CryoSPARC Tools token-login command for
+   the same Python interpreter. Complete it in a terminal before running.
+2. Choose **Class Orientation** for pose-assisted Class Camera Orientation
+   matching, or **Axis Search** for image-only 2fold/3fold/5fold ranking in the
+   supported CryoSPARC `I` convention.
+3. Fill in the source job UIDs. Expand **Show advanced settings** for output
+   names, scoring, Near-Axis Refinement parameters and rendering controls.
+   Blank optional fields preserve the CLI defaults. In Class Orientation,
+   **Interactive class numbers** requests rotated volumes only; it does not
+   filter which selected classes are matched. For repeatable display rolls,
+   use `2fold=90;3fold=30`.
+4. Click **Run selected workflow**. This creates an actual CryoSPARC External
+   Job. The GUI runs the same command-line workflow in a child process and
+   displays its logs without freezing the window. Only one run is allowed at
+   a time. Keep the window open until it finishes; closing is blocked during
+   a run because safe External Job cancellation is not implemented.
+5. Use **Open CryoSPARC** to open the server and find the new External Job in
+   the workspace you entered. Scientific outputs and result previews remain
+   in CryoSPARC; the launcher does not embed a separate result viewer.
+
+**Save settings / Load settings** explicitly saves or restores both pages as
+versioned JSON. No password or token is collected or saved by the launcher.
+**Copy command** copies a POSIX-shell command for reproducible terminal runs.
+Settings edited during a run apply to the next run. Failures show the exit
+code and logs; retrying creates another job, so inspect the failed job first.
+The launcher does not submit to Slurm. It runs computations on its own host,
+with the same connectivity and filesystem requirements as the CLI.
+
+GUI tests are in `tests/test_gui.py`. Validation, settings, worker routing and
+process lifecycle tests run headlessly. The Tk smoke test runs only when a
+desktop display is available (for example, `xvfb-run -a python -m pytest tests/test_gui.py -q`). Real-server verification still requires a configured
+CryoSPARC instance and representative input jobs.
+
 ## Update an editable installation
 
 After installing the project from its Git checkout into an activated Conda
