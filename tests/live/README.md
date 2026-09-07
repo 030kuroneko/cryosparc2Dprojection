@@ -12,7 +12,7 @@ export CRYOSPARC_FIXTURE_WORKSPACE=W1
 export CRYOSPARC_FIXTURE_VOLUME_JOB=J200
 export CRYOSPARC_FIXTURE_VOLUME_OUTPUT=volume
 export CRYOSPARC_FIXTURE_RESULT=tests/live/results/cryosparc_5_0_6.json
-uv run cryosparc-506-convention-fixture
+uv run cryosparc2d-506-convention-fixture
 ```
 
 Authenticate first with the CryoSPARC Tools v5 token flow. The command creates

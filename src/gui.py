@@ -212,7 +212,7 @@ class Launcher:
     def copy_command(self):
         try:
             name = self.selected()
-            executable = 'cryosparc-2d-projection' if name == 'orientation' else 'cryosparc-axis-search'
+            executable = 'cryosparc2d-projection' if name == 'orientation' else 'cryosparc2d-axis-search'
             command = shlex.join([executable, *build_arguments(name, self.values()[name])])
             self.root.clipboard_clear()
             self.root.clipboard_append(command)

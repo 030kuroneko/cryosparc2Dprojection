@@ -124,7 +124,7 @@ def test_project_metadata_installs_update_command_and_test_dependencies():
         (Path(__file__).parent.parent / "pyproject.toml").read_text()
     )
 
-    assert metadata["project"]["scripts"]["cryosparc-update"] == (
+    assert metadata["project"]["scripts"]["cryosparc2d-update"] == (
         "cryosparc_2d_projection.update_cli:main"
     )
     assert metadata["project"]["optional-dependencies"]["dev"] == [

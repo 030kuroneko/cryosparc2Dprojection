@@ -16,20 +16,28 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "flask>=3.1,<4",
+    "waitress>=3,<4",
+]
 dev = [
     "pytest>=8,<9",
 ]
 
 [project.scripts]
-cryosparc-gui = "cryosparc_2d_projection.gui:main"
-cryosparc-2d-projection = "cryosparc_2d_projection.cli:main"
-cryosparc-506-convention-fixture = "cryosparc_2d_projection.live_fixture:main"
-cryosparc-axis-search = "cryosparc_2d_projection.axis_cli:main"
-cryosparc-update = "cryosparc_2d_projection.update_cli:main"
+cryosparc2d = "cryosparc_2d_projection.web:main"
+cryosparc2d-gui = "cryosparc_2d_projection.gui:main"
+cryosparc2d-projection = "cryosparc_2d_projection.cli:main"
+cryosparc2d-506-convention-fixture = "cryosparc_2d_projection.live_fixture:main"
+cryosparc2d-axis-search = "cryosparc_2d_projection.axis_cli:main"
+cryosparc2d-update = "cryosparc_2d_projection.update_cli:main"
 
 [tool.setuptools]
 packages = ["cryosparc_2d_projection"]
 package-dir = { cryosparc_2d_projection = "src" }
+
+[tool.setuptools.package-data]
+cryosparc_2d_projection = ["web_assets/*"]
 
 [dependency-groups]
 dev = [

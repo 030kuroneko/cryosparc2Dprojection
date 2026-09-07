@@ -99,7 +99,7 @@ def test_worker_dispatches_to_existing_workflow(monkeypatch):
 
 def test_launch_failure_is_reported():
     runner = JobRunner()
-    runner.start(['/nonexistent/cryosparc-gui-test-executable'])
+    runner.start(['/nonexistent/cryosparc2d-gui-test-executable'])
     runner.thread.join(timeout=5)
     events = runner.drain()
     assert ('finished', 1) in events

@@ -2,7 +2,7 @@
 
 ## Symmetry-Axis Class Search
 
-`cryosparc-axis-search` is the image-only CryoSPARC 5.0.6 workflow. It needs
+`cryosparc2d-axis-search` is the image-only CryoSPARC 5.0.6 workflow. It needs
 only a Select 2D template output and a volume output; particles and refinement
 poses are not inputs. It searches the `I` 2fold, 3fold, and 5fold Axis
 Families by default, ranks with the physical band-limited Axis Class Score,
@@ -10,7 +10,7 @@ and publishes native-grid Exact-Axis results. Near-Axis Refinement is optional
 and runs only with `--refine-near-axis`.
 
 ```bash
-uv run cryosparc-axis-search \
+uv run cryosparc2d-axis-search \
   --url https://cryosparc.example.org \
   --project P1 \
   --workspace W1 \
@@ -117,14 +117,14 @@ Start the launcher from this checkout:
 
 ```bash
 uv sync
-uv run cryosparc-gui
+uv run cryosparc2d-gui
 ```
 
 For an existing activated Conda/Python environment:
 
 ```bash
 python -m pip install -e .
-cryosparc-gui
+cryosparc2d-gui
 ```
 
 The GUI uses Tk/ttk. Run it on the desktop machine where the command-line
@@ -160,8 +160,28 @@ versioned JSON. No password or token is collected or saved by the launcher.
 **Copy command** copies a POSIX-shell command for reproducible terminal runs.
 Settings edited during a run apply to the next run. Failures show the exit
 code and logs; retrying creates another job, so inspect the failed job first.
-The launcher does not submit to Slurm. It runs computations on its own host,
+The desktop launcher does not submit to Slurm. It runs computations on its own host,
 with the same connectivity and filesystem requirements as the CLI.
+
+### Multi-user web launcher (Abyss)
+
+The web launcher adds individual CryoSPARC sign-in, private run histories,
+responsive deep-ocean styling, and a persistent sequential queue with local or
+Slurm execution profiles. In your activated Conda environment, install and start:
+
+```bash
+python -m pip install -e '.[web]'
+cryosparc2d --url https://your-cryosparc-server
+```
+
+Open `http://127.0.0.1:40000`. Slurm is optional and configured in the browser,
+not through additional launch flags. `--port` changes the default `40000`.
+`--config` remains available for advanced deployments; explicit flags override it.
+All project commands now start with `cryosparc2d`; reinstall to replace the old
+entry points. CryoSPARC's official commands and SDK names are unchanged.
+See [deployment, authentication and Slurm setup](docs/web-launcher.md) and the
+[example configuration](docs/web-config.example.json). Real deployment needs
+the lab's HTTPS endpoint, a dedicated submission account and shared compute paths.
 
 GUI tests are in `tests/test_gui.py`. Validation, settings, worker routing and
 process lifecycle tests run headlessly. The Tk smoke test runs only when a
@@ -174,7 +194,7 @@ After installing the project from its Git checkout into an activated Conda
 environment, update it from anywhere with:
 
 ```bash
-cryosparc-update
+cryosparc2d-update
 ```
 
 The command fast-forwards the current branch from its configured upstream,
@@ -196,7 +216,7 @@ The token is stored by CryoSPARC Tools. This project does not store your email o
 ## Run with NU Refinement
 
 ```bash
-uv run cryosparc-2d-projection \
+uv run cryosparc2d-projection \
   --url https://cryosparc.example.org \
   --project P1 \
   --workspace W1 \
@@ -211,7 +231,7 @@ uv run cryosparc-2d-projection \
 With the P1/W9 test data and the conda installation:
 
 ```bash
-cryosparc-2d-projection \
+cryosparc2d-projection \
   --url http://localhost:39000 \
   --project P1 \
   --workspace W9 \
@@ -322,7 +342,7 @@ to lower usable levels.
 Use the Local Refinement job as `--refinement-job`. Change the two output names if that job exposes different names in its CryoSPARC Outputs panel:
 
 ```bash
-uv run cryosparc-2d-projection \
+uv run cryosparc2d-projection \
   --url https://cryosparc.example.org \
   --project P1 \
   --workspace W1 \

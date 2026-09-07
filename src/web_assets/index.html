@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>2D Projection · CryoSPARC workspace launcher</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <div id="login-screen" class="login-screen">
+      <div class="login-art" aria-hidden="true">
+        <div class="orbits"><i></i><i></i><i></i></div>
+        <span>FROM CLASS TO PERSPECTIVE</span>
+      </div>
+      <section class="login-card">
+        <div class="brand"><span class="mark"></span>2D Projection</div>
+        <p class="eyebrow">CRYOSPARC WORKSPACE LAUNCHER</p>
+        <h1>A clearer perspective.</h1>
+        <p class="subtitle">
+          Sign in with your CryoSPARC account.<br />Your runs and activity stay
+          in your workspace.
+        </p>
+        <p id="login-server" class="server"></p>
+        <form id="login-form">
+          <label
+            >Email<input
+              id="email"
+              type="email"
+              autocomplete="username"
+              required /></label
+          ><label
+            >Password<input
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              required
+          /></label>
+          <p id="login-error" class="error" role="alert"></p>
+          <button class="primary" type="submit">Sign in →</button>
+        </form>
+        <small>Passwords are used for sign-in only and are not saved.</small>
+      </section>
+    </div>
+    <div id="workspace" class="shell" hidden>
+      <aside class="sidebar">
+        <div class="brand"><span class="mark"></span>2D Projection</div>
+        <p class="eyebrow nav-heading">WORKFLOWS</p>
+        <nav aria-label="Workflows">
+          <button data-workflow="orientation" class="nav-item active">
+            <span>◈</span>Class Orientation</button
+          ><button data-workflow="axis" class="nav-item">
+            <span>◎</span>Axis Search
+          </button>
+        </nav>
+        <div class="sidebar-note">
+          <span class="eyebrow">YOUR SESSION</span>
+          <p id="signed-in-email"></p>
+          <button id="logout" class="quiet">Sign out ↗</button>
+        </div>
+      </aside>
+      <main>
+        <header class="page-header">
+          <span class="eyebrow">WORKSPACE LAUNCHER</span
+          ><a
+            id="open-cryosparc"
+            class="external"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Open CryoSPARC ↗</a
+          >
+        </header>
+        <div class="title-row">
+          <div>
+            <h1 id="workflow-title">Class Orientation</h1>
+            <p id="workflow-description" class="subtitle"></p>
+          </div>
+          <span class="badge">ABYSS / 01</span>
+        </div>
+        <form id="workflow-form">
+          <section class="connection card">
+            <label class="server-field"
+              >CryoSPARC server<span id="server-url"></span
+            ></label>
+            <div id="connection-fields" class="fields"></div>
+          </section>
+          <div class="content-grid">
+            <section class="card configuration">
+              <div class="section-title">
+                <h2><span class="number">01</span>Source & configuration</h2>
+                <small>* Required</small>
+              </div>
+              <div id="basic-fields" class="fields"></div>
+              <div id="advanced-fields"></div>
+            </section>
+            <aside class="context-column">
+              <section class="card execution">
+                <p class="eyebrow">EXECUTION</p>
+                <h2>Where your run happens</h2>
+                <label>Execution profile<select id="profile"></select></label>
+                <p id="profile-note" class="hint"></p>
+                <div class="divider"></div>
+                <p class="eyebrow">WHAT YOU’LL GET</p>
+                <ul class="deliverables">
+                  <li>Class Average</li>
+                  <li>Matched Projection</li>
+                  <li>Camera View Render</li>
+                </ul>
+                <p class="hint">
+                  Full scientific outputs are published to your CryoSPARC
+                  workspace.
+                </p>
+              </section>
+              <div class="settings-tools">
+                <button id="load-settings" type="button" class="quiet">
+                  ↥ Load settings</button
+                ><button id="save-settings" type="button" class="quiet">
+                  ↧ Save settings</button
+                ><input
+                  id="settings-file"
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                />
+              </div>
+            </aside>
+          </div>
+          <div id="slurm-panel" class="card" hidden>
+            <p class="hint">
+              Slurm runs under the service account. An administrator configures
+              resources once; other users only select Slurm.
+            </p>
+            <details id="slurm-admin">
+              <summary>Administrator · Slurm setup</summary>
+              <p class="hint">
+                Use the private administrator key file shown in the server
+                terminal. Never share this key with other users.
+              </p>
+              <label
+                >Administrator key<input
+                  id="admin-key"
+                  type="password"
+                  autocomplete="off"
+              /></label>
+              <button id="unlock-admin" type="button">Unlock settings</button>
+              <fieldset id="slurm-fields" disabled hidden>
+                <label
+                  >Shared working directory<input
+                    id="slurm-work_dir"
+                    placeholder="/shared/cryosparc2d/jobs"
+                /></label>
+                <p class="hint">
+                  Use a dedicated shared directory owned by the service account
+                  (permissions 700), outside CryoSPARC-managed project folders.
+                  Local job history stays on this server.
+                </p>
+                <label>Compute-node Python<input id="slurm-python" /></label>
+                <p class="hint">
+                  Defaults to this server’s active Conda Python. The same
+                  environment and package must exist at this path on compute
+                  nodes.
+                </p>
+                <label
+                  >Partition<input
+                    id="slurm-partition"
+                    placeholder="Cluster default"
+                /></label>
+                <label
+                  >Account<input
+                    id="slurm-account"
+                    placeholder="Cluster default"
+                /></label>
+                <label
+                  >QoS<input id="slurm-qos" placeholder="Cluster default"
+                /></label>
+                <label
+                  >CPUs<input
+                    id="slurm-cpus"
+                    type="number"
+                    min="1"
+                    max="1000000"
+                /></label>
+                <label
+                  >Memory (MiB)<input
+                    id="slurm-memory_mb"
+                    type="number"
+                    min="1"
+                    max="1000000"
+                /></label>
+                <label
+                  >Time limit (minutes)<input
+                    id="slurm-time_minutes"
+                    type="number"
+                    min="1"
+                    max="1000000"
+                /></label>
+                <div class="check-row">
+                  <input id="slurm-shared_confirmed" type="checkbox" /><label
+                    for="slurm-shared_confirmed"
+                    >I verified that the directory and Python are accessible at
+                    the same paths on compute nodes.</label
+                  >
+                </div>
+                <button id="save-slurm" type="button">
+                  Save Slurm settings
+                </button>
+                <p class="hint">
+                  Changes apply only to new jobs. Saving does not submit a job
+                  or verify compute-node connectivity.
+                </p>
+              </fieldset>
+            </details>
+            <p id="slurm-status" class="hint" role="status"></p>
+          </div>
+          <div class="action-bar">
+            <p id="form-status" role="status">
+              <span class="status-dot"></span>Ready to configure
+            </p>
+            <button id="copy-command" type="button">Copy command</button
+            ><button id="submit-job" type="submit" class="primary">
+              Run workflow →
+            </button>
+          </div>
+          <p id="form-error" class="error" role="alert"></p>
+        </form>
+        <section class="activity">
+          <div class="section-title">
+            <h2><span class="number">02</span>Your runs</h2>
+            <span id="refresh-status" class="hint"
+              >Updates every 5 seconds</span
+            >
+          </div>
+          <div id="job-list" class="job-list">
+            <p class="empty">Your first run starts here.</p>
+          </div>
+          <details id="log-panel">
+            <summary>Activity log <span id="log-job"></span></summary>
+            <pre id="job-log" tabindex="0">
+Select a run to inspect its activity.</pre
+            >
+          </details>
+        </section>
+        <footer class="page-footer">
+          2D Projection
+          <span>Scientific results in CryoSPARC · Execution tracked here</span>
+        </footer>
+      </main>
+    </div>
+    <noscript>This launcher needs JavaScript enabled.</noscript>
+  </body>
+</html>
