@@ -30,6 +30,89 @@ def login(client, email='alice@example.org'):
     return {'X-CSRF-Token': response.json['csrf'], 'Origin': 'http://localhost'}
 
 
+@pytest.mark.parametrize('plain', [True, False])
+def test_sdk_login_accepts_plain_json_and_model_responses(tmp_path, monkeypatch, plain):
+    from types import SimpleNamespace
+    token = {'access_token': 'upstream-secret', 'token_type': 'bearer'}
+    user = {'_id': 'authoritative-user-id'}
+    class API:
+        def __init__(self, *args, **kwargs):
+            self.users = SimpleNamespace(me=lambda: user if plain else SimpleNamespace(id=user['_id']))
+        def login(self, **kwargs):
+            return token if plain else SimpleNamespace(**token)
+        def __call__(self, auth):
+            assert auth == 'upstream-secret'
+    monkeypatch.setattr('cryosparc.api.APIClient', API)
+    app = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                      'public_url': 'http://localhost', 'allow_http': True})
+    client = app.test_client()
+    headers = login(client)
+    response = client.post('/api/jobs', json=submission(), headers=headers)
+    assert response.status_code == 201
+    assert 'upstream-secret' not in response.text
+    assert client.get('/api/session').json['email'] == 'alice@example.org'
+
+
+@pytest.mark.parametrize('token,user', [
+    ({'access_token': ''}, {'_id': 'user'}),
+    ({'access_token': None}, {'_id': 'user'}),
+    ({'access_token': 'secret'}, {}),
+    ({'access_token': 'secret'}, {'_id': ''}),
+    ({'access_token': 'secret'}, {'_id': 123}),
+])
+def test_malformed_sdk_identity_cannot_create_a_session(tmp_path, monkeypatch, token, user):
+    from types import SimpleNamespace
+    class API:
+        def __init__(self, *args, **kwargs):
+            self.users = SimpleNamespace(me=lambda: user)
+        def login(self, **kwargs):
+            return token
+        def __call__(self, auth):
+            pass
+    monkeypatch.setattr('cryosparc.api.APIClient', API)
+    client = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                        'public_url': 'http://localhost', 'allow_http': True}).test_client()
+    csrf = client.get('/api/session').json['csrf']
+    response = client.post('/api/login', json={'email': 'alice', 'password': 'correct'},
+                           headers={'Origin': 'http://localhost', 'X-CSRF-Token': csrf})
+    assert response.status_code == 401
+    assert client.get('/api/jobs').status_code == 401
+
+
+@pytest.mark.parametrize('host', ['localhost', '127.0.0.1'])
+def test_loopback_alias_supports_login_and_submission_on_configured_port(tmp_path, host):
+    app = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                      'public_url': 'http://127.0.0.1:40000', 'allow_http': True},
+                     authenticate=authenticate)
+    client = app.test_client()
+    origin = f'http://{host}:40000'
+    response = client.get('/api/session', base_url=origin)
+    assert response.status_code == 200
+    response = client.post('/api/login', base_url=origin,
+        json={'email': 'alice', 'password': 'correct'},
+        headers={'Origin': origin, 'X-CSRF-Token': response.json['csrf']})
+    assert response.status_code == 200
+    headers = {'Origin': origin, 'X-CSRF-Token': response.json['csrf']}
+    assert client.post('/api/jobs', base_url=origin, json=submission(), headers=headers).status_code == 201
+    for other in ('http://localhost:40001', 'https://localhost:40000', 'http://evil.example:40000'):
+        assert client.post('/api/logout', base_url=origin,
+                           headers=dict(headers, Origin=other)).status_code == 403
+    assert client.get('/api/session', base_url='http://evil.example:40000').status_code == 400
+
+
+def test_https_does_not_trust_loopback_aliases(tmp_path):
+    app = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                      'public_url': 'https://lab.example'}, authenticate=authenticate)
+    client = app.test_client()
+    csrf = client.get('/api/session', base_url='https://lab.example').json['csrf']
+    for origin in ('http://localhost', 'https://127.0.0.1', 'https://lab.example:40001'):
+        response = client.post('/api/login', base_url='https://lab.example',
+            json={'email': 'alice', 'password': 'correct'},
+            headers={'Origin': origin, 'X-CSRF-Token': csrf})
+        assert response.status_code == 403
+    assert client.get('/api/session', base_url='https://localhost').status_code == 400
+
+
 def test_login_requires_csrf_rotates_session_and_never_returns_credentials(app):
     client = app.test_client()
     assert client.get('/api/jobs').status_code == 401

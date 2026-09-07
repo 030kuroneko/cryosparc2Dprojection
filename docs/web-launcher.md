@@ -38,6 +38,10 @@ Open `http://127.0.0.1:40000` and sign in with your CryoSPARC account. Defaults:
 loopback binding, port **40000**, local sequential computation using the active
 environment's Python, private state in `~/.local/state/cryosparc2d`. No Slurm
 installation, Slurm flags or JSON configuration is required for local use.
+`http://localhost:40000` is also accepted in loopback HTTP mode. Stay on the
+same hostname while signed in: browser cookies are host-specific. Write requests
+must match that hostname and the configured port; HTTPS deployments continue to
+accept only their configured public origin.
 For a server reached by SSH, you may forward your own local port 40000 to the
 server's loopback port 40000; for shared HTTPS deployment see below.
 
@@ -171,6 +175,12 @@ restarts. Use it only with this dedicated service account. This document does no
 install services, modify Slurm, open a firewall or provision certificates.
 
 ## Credentials and lifecycle
+
+The login adapter accepts SDK model objects and plain JSON token/user responses,
+including CryoSPARC's `_id` user field. An SDK unregistered-schema warning may
+still appear, but a plain JSON response no longer fails attribute access. Missing
+or invalid tokens and user identities are rejected rather than assigned a fallback
+identity. Warnings are not globally suppressed.
 
 Users sign in with their own CryoSPARC email/password through HTTPS. The SDK
 exchanges credentials for a token, then obtains the authoritative user ID for

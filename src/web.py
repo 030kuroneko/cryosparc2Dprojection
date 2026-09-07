@@ -32,9 +32,16 @@ def cryosparc_login(url, email, password):
     client = APIClient(url + API_SUFFIX, timeout=30)
     token = client.login(grant_type='password', username=email,
                          password=sha256(password.encode()).hexdigest())
-    client(auth=token.access_token)
+    # APIClient may return plain JSON when the server schema is not registered.
+    access_token = token.get('access_token') if isinstance(token, dict) else token.access_token
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise ValueError('CryoSPARC returned an invalid authentication token')
+    client(auth=access_token)
     user = client.users.me()
-    return {'owner': user.id, 'email': email, 'token': token.access_token}
+    owner = user.get('_id', user.get('id')) if isinstance(user, dict) else user.id
+    if not isinstance(owner, str) or not owner.strip():
+        raise ValueError('CryoSPARC returned an invalid user identity')
+    return {'owner': owner, 'email': email, 'token': access_token}
 
 
 def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
@@ -48,8 +55,15 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
     if config.get('allow_http') and public.hostname not in ('localhost', '127.0.0.1', '::1'):
         raise ValueError('allow_http is restricted to loopback development')
     origin = f'{public.scheme}://{public.netloc}'
+    trusted_hosts = [public.hostname]
+    allowed_origins = {origin}
+    loopback_http = public.scheme == 'http' and config.get('allow_http', False)
+    if loopback_http:
+        trusted_hosts = list(dict.fromkeys([public.hostname, 'localhost', '127.0.0.1']))
+        port = f':{public.port}' if public.port else ''
+        allowed_origins.update(f'http://{host}{port}' for host in ('localhost', '127.0.0.1'))
     app = Flask(__name__, static_folder=None)
-    app.config.update(MAX_CONTENT_LENGTH=65536, TRUSTED_HOSTS=[public.hostname])
+    app.config.update(MAX_CONTENT_LENGTH=65536, TRUSTED_HOSTS=trusted_hosts)
     store = JobStore(config)
     admin_token = config.get('admin_token')
     if not admin_token:
@@ -95,7 +109,9 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
             identity = sessions.get(request.cookies.get('projection_session'))
             g.identity = identity if identity and identity['expires'] > time.time() else None
         if request.method not in ('GET', 'HEAD', 'OPTIONS'):
-            if (request.headers.get('Origin') != origin or not g.identity or
+            if (request.headers.get('Origin') not in allowed_origins or
+                    (loopback_http and request.headers.get('Origin') != request.host_url.rstrip('/')) or
+                    not g.identity or
                     not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''),
                                                g.identity['csrf'])):
                 return jsonify(error='Session expired or request verification failed. Reload and sign in.'), 403
