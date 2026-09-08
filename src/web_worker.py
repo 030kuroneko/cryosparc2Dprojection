@@ -62,7 +62,7 @@ def main(argv=None):
                               for session in users.values()]
                 payload = json.loads((directory / 'request.json').read_text())
                 os.environ['CRYOSPARC_EMAIL'] = payload['email']
-                from cryosparc_2d_projection.gui_model import WORKFLOWS
+                from cryosparc_2d_projection.workflow_config import WORKFLOWS
                 print('Starting ' + payload['workflow'] + ' workflow.')
                 code = WORKFLOWS[payload['workflow']].main(payload['argv']) or 0
                 detail = '' if code == 0 else 'Workflow returned an error. Check the activity log.'

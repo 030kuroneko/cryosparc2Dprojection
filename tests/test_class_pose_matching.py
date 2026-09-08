@@ -58,8 +58,8 @@ def test_class_orientation_uses_cryosparc_rodrigues_pose_convention():
     assert np.isclose(orientations[0].angular_spread_degrees, 45.0)
 
 
-@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
-def test_orientation_analysis_rejects_symmetry_outside_v0_1_support(symmetry):
+@pytest.mark.parametrize("symmetry", ["C0", "D0", "C-2", "D1.5", "I1", "I2", "C01", "", "Cn"])
+def test_orientation_analysis_rejects_unsupported_symmetry(symmetry):
     select_2d = np.array(
         [(101, 0)],
         dtype=[("uid", "u8"), ("alignments2D/class", "i4")],
@@ -69,7 +69,7 @@ def test_orientation_analysis_rejects_symmetry_outside_v0_1_support(symmetry):
         dtype=[("uid", "u8"), ("alignments3D/pose", "f8", (3,))],
     )
 
-    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+    with pytest.raises(ValueError, match="Supported symmetry:"):
         analyze_class_orientations(select_2d, refinement, symmetry=symmetry)
 
 
@@ -108,3 +108,21 @@ def test_orientation_analysis_rejects_datasets_without_overlapping_uids():
 
     with pytest.raises(ValueError, match="No overlapping particle UIDs"):
         analyze_class_orientations(select_2d, refinement)
+
+
+@pytest.mark.parametrize("symmetry,mate", [
+    ("C2", np.diag([-1., -1., 1.])),
+    ("D7", np.diag([-1., 1., -1.])),
+    ("T", np.array([[-1., 0., 0.], [0., 1/3, 2*np.sqrt(2)/3], [0., 2*np.sqrt(2)/3, -1/3]])),
+    ("O", np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]])),
+])
+def test_new_point_groups_fold_equivalent_particle_directions(symmetry, mate):
+    from scipy.spatial.transform import Rotation
+    reference = Rotation.from_euler("xyz", [17, 31, 43], degrees=True).as_matrix()
+    cameras = np.array([reference, reference @ mate])
+    poses = Rotation.from_matrix(cameras.transpose(0, 2, 1)).as_rotvec()
+    selected = {"uid": np.array([1, 2]), "alignments2D/class": np.array([0, 0])}
+    refined = {"uid": np.array([1, 2]), "alignments3D/pose": poses}
+    result = analyze_class_orientations(selected, refined, symmetry=symmetry)[0]
+    np.testing.assert_allclose(result.view_direction, reference[2], atol=1e-12)
+    assert result.angular_spread_degrees < 1e-5

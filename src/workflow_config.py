@@ -1,15 +1,9 @@
-"""Display-independent configuration and subprocess boundary for the launcher."""
+"""Shared workflow defaults and argument validation for launchers."""
 import argparse
 import contextlib
 import io
-import json
 import math
-import os
-from pathlib import Path
-import queue
 import re
-import subprocess
-import threading
 from urllib.parse import urlsplit
 
 from cryosparc_2d_projection import cli, axis_cli
@@ -20,7 +14,6 @@ from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
 WORKFLOWS = {'orientation': cli, 'axis': axis_cli}
-SHARED = ('url', 'project', 'workspace')
 
 
 def actions(workflow):
@@ -36,7 +29,7 @@ def default_values(workflow):
 def validate_url(value):
     try:
         url = urlsplit(value)
-        _ = url.port  # Validate port syntax and range.
+        _ = url.port
     except ValueError as error:
         raise ValueError('Enter a valid CryoSPARC HTTP(S) URL.') from error
     if (url.scheme not in ('http', 'https') or not url.hostname or
@@ -92,76 +85,5 @@ def build_arguments(workflow, values):
                          shift_bound_fraction=args.shift_bound_fraction, top_n=args.top_n,
                          mirror_warning_margin=args.mirror_warning_margin)
         AxisProximityConfig(args.axis_cone_degrees, args.tilt_coarse_step, args.tilt_refine_step)
-        parse_axis_rolls(args.axis_roll)
+        parse_axis_rolls(args.axis_roll, symmetry=args.symmetry)
     return argv
-
-
-def clean_settings(pages):
-    if not isinstance(pages, dict) or set(pages) != set(WORKFLOWS):
-        raise ValueError('Settings must contain both workflow pages.')
-    result = {}
-    for name in WORKFLOWS:
-        if not isinstance(pages[name], dict):
-            raise ValueError('Invalid workflow settings')
-        result[name] = defaults = default_values(name)
-        for key in defaults:
-            value = pages[name].get(key, defaults[key])
-            if type(value) is not type(defaults[key]):
-                raise ValueError(f'Invalid setting: {key}')
-            defaults[key] = value
-        if defaults['url']:
-            validate_url(defaults['url'])
-    if any(result['orientation'][key] != result['axis'][key] for key in SHARED):
-        raise ValueError('Connection settings must be the same on both pages.')
-    return result
-
-
-def save_settings(path, pages):
-    payload = {'version': 1, 'pages': clean_settings(pages)}
-    Path(path).write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
-
-
-def load_settings(path):
-    payload = json.loads(Path(path).read_text(encoding='utf-8'))
-    if not isinstance(payload, dict) or payload.get('version') != 1:
-        raise ValueError('Unsupported GUI settings version')
-    return clean_settings(payload.get('pages'))
-
-
-class JobRunner:
-    """One child at a time; all GUI updates are delivered through a queue."""
-    def __init__(self):
-        self.events = queue.Queue()
-        self.thread = None
-
-    @property
-    def running(self):
-        return self.thread is not None and self.thread.is_alive()
-
-    def start(self, command):
-        if self.running:
-            raise RuntimeError('A job is already running')
-        self.thread = threading.Thread(target=self._run, args=(command,), daemon=False)
-        self.thread.start()
-
-    def _run(self, command):
-        try:
-            env = dict(os.environ, PYTHONUNBUFFERED='1', MPLBACKEND='Agg')
-            with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  text=True, encoding='utf-8', errors='replace', env=env) as process:
-                for line in process.stdout:
-                    self.events.put(('log', line))
-                code = process.wait()
-        except Exception as error:
-            self.events.put(('log', f'Could not launch job: {error}\n'))
-            code = 1
-        self.events.put(('finished', code))
-
-    def drain(self, limit=500):
-        events = []
-        for _ in range(limit):
-            try:
-                events.append(self.events.get_nowait())
-            except queue.Empty:
-                break
-        return events

@@ -26,7 +26,6 @@ dev = [
 
 [project.scripts]
 cryosparc2d = "cryosparc_2d_projection.web:main"
-cryosparc2d-gui = "cryosparc_2d_projection.gui:main"
 cryosparc2d-projection = "cryosparc_2d_projection.cli:main"
 cryosparc2d-506-convention-fixture = "cryosparc_2d_projection.live_fixture:main"
 cryosparc2d-axis-search = "cryosparc_2d_projection.axis_cli:main"

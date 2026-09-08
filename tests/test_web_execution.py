@@ -69,7 +69,7 @@ def test_scheduler_failure_cannot_be_reported_as_success(state, exit_code):
 def test_uncertain_submission_blocks_further_dispatch_instead_of_resubmitting(tmp_path, monkeypatch):
     from cryosparc_2d_projection.web_jobs import JobStore
     from cryosparc_2d_projection.web_execution import Dispatcher
-    from cryosparc_2d_projection.gui_model import default_values
+    from cryosparc_2d_projection.workflow_config import default_values
     import uuid
     binary = tmp_path / 'sbatch'
     binary.write_text('#!/bin/sh\nprintf "unexpected scheduler response\\n"\n')

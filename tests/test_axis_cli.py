@@ -560,3 +560,51 @@ def test_axis_cli_enables_near_axis_refinement_only_when_requested(tmp_path):
     } <= set(job.saved)
     metadata = json.loads((tmp_path / "axis_search_results.json").read_text())
     assert metadata["proximity_config"]["enabled"] is True
+
+
+@pytest.mark.parametrize('symmetry,family', [('C3', '3fold-2'), ('D7', '7fold'), ('T', '3fold-2'), ('O', '4fold')])
+def test_axis_cli_validates_families_against_selected_symmetry(symmetry, family):
+    common = ['--url', 'https://cryo.example', '--project', 'P1', '--workspace', 'W1',
+              '--select-job', 'J1', '--volume-job', 'J2']
+    for options in [
+        ['--symmetry', symmetry, '--axis-family', family],
+        ['--axis-family', family, '--symmetry', symmetry],
+    ]:
+        parsed = build_parser().parse_args([*common, *options, '--axis-roll', f'{family}=15'])
+        assert parsed.symmetry == symmetry
+        assert parsed.axis_family == (family,)
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*common, '--symmetry', symmetry, '--axis-family', '5fold'])
+
+
+@pytest.mark.parametrize('symmetry,family', [('C3', '3fold-2'), ('D7', '7fold'), ('T', '3fold-2'), ('O', '4fold')])
+def test_new_axis_symmetry_reaches_external_job_outputs(tmp_path, symmetry, family):
+    from cryosparc_2d_projection.axis_registry import get_axis_family
+    job = _axis_job(tmp_path, class_size=16)
+    code = main([
+        '--url', 'https://cryo.example', '--project', 'P1', '--workspace', 'W1',
+        '--select-job', 'J1', '--volume-job', 'J2', '--symmetry', symmetry,
+        '--axis-family', family, '--axis-roll', f'{family}=15', '--top-n', '1',
+        '--render-size', '64', '--roll-coarse-step', '30', '--roll-refine-step', '10',
+        '--refine-near-axis', '--axis-cone-degrees', '1', '--tilt-coarse-step', '1',
+        '--tilt-refine-step', '1',
+    ], client_factory=lambda url: AxisClient(job))
+    assert code == 0
+    metadata = json.loads((tmp_path / 'axis_search_results.json').read_text())
+    assert metadata['symmetry'] == symmetry
+    assert metadata['families'] == [family]
+    assert metadata['presentation']['axis_rolls'] == {family: 15}
+    assert metadata['rows'][0]['family'] == family
+    assert metadata['rows'][0]['angular_distance_degrees'] <= 1 + 1e-8
+    assert 'axis_near_matched_projections' in job.saved
+    expected = get_axis_family(symmetry, family).canonical_camera_matrix
+    np.testing.assert_allclose(metadata['rows'][0]['canonical_exact_axis_rotation_matrix'], expected)
+
+
+@pytest.mark.parametrize('symmetry,families', [('C1', None), ('I2', None), ('O', ('5fold',)), ('D7', ())])
+def test_invalid_axis_request_is_rejected_before_creating_job(tmp_path, symmetry, families):
+    job = InMemoryExternalJobBackend(tmp_path)
+    with pytest.raises(ValueError):
+        run_axis_search_job(job, 'W1', AxisSourceOutput('J1', 'templates'),
+                            AxisSourceOutput('J2', 'volume'), symmetry=symmetry, families=families)
+    assert job.created is None

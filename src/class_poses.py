@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
-from cryosparc_2d_projection.symmetry import SupportedSymmetry
+from cryosparc_2d_projection.symmetry import SupportedSymmetry, symmetry_operators
 
 
 @dataclass(frozen=True)
@@ -89,10 +88,10 @@ def _particle_field(particles, attribute, dataset_field):
 
 def _fold_symmetry_equivalents(view_directions, symmetry):
     supported_symmetry = SupportedSymmetry.parse(symmetry)
-    if supported_symmetry is SupportedSymmetry.C1:
+    if supported_symmetry == SupportedSymmetry.C1:
         return view_directions
 
-    symmetry_matrices = Rotation.create_group(supported_symmetry.value).as_matrix()
+    symmetry_matrices = symmetry_operators(supported_symmetry)
     reference = view_directions[0]
     folded = view_directions.copy()
 

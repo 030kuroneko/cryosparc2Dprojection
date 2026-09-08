@@ -473,3 +473,23 @@ def test_near_axis_refinement_reoptimizes_roll_and_shift_on_the_search_grid():
     assert refined.score_metadata["translation_strategy"] == (
         "fft_normalized_cross_correlation"
     )
+
+
+def test_cyclic_axis_search_and_near_refinement_preserve_both_poles():
+    volume = _asymmetric_volume(size=16)
+    reference = project_axis_reference(volume, get_axis_family('C3', '3fold')).projection
+    result = rank_axis_families(
+        {1: reference}, volume, symmetry='C3', class_pixel_size_A=1,
+        map_pixel_size_A=1,
+        config=AxisSearchConfig(top_n=1, roll_coarse_step_degrees=30, roll_refine_step_degrees=10),
+    )
+    assert result.symmetry == 'C3'
+    assert list(result.families) == ['3fold', '3fold-2']
+    assert result.rows[0].exact_score > .999
+    refined = refine_axis_candidates(
+        result, volume, class_pixel_size_A=1, map_pixel_size_A=1,
+        config=AxisProximityConfig(cone_degrees=1, coarse_step_degrees=1, refine_step_degrees=1),
+    )
+    assert [row.exact_candidate.family_name for row in refined.rows] == ['3fold', '3fold-2']
+    for row in refined.rows:
+        assert row.angular_distance_degrees <= 1 + 1e-8

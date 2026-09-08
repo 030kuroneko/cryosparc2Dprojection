@@ -4,8 +4,8 @@
 
 `cryosparc2d-axis-search` is the image-only CryoSPARC 5.0.6 workflow. It needs
 only a Select 2D template output and a volume output; particles and refinement
-poses are not inputs. It searches the `I` 2fold, 3fold, and 5fold Axis
-Families by default, ranks with the physical band-limited Axis Class Score,
+poses are not inputs. Set `--symmetry` to `Cn` (n >= 2), `Dn`, `T`, `O`, or `I`.
+It searches the `I` 2fold, 3fold, and 5fold Axis Families by default, ranks with the physical band-limited Axis Class Score,
 and publishes native-grid Exact-Axis results. Near-Axis Refinement is optional
 and runs only with `--refine-near-axis`.
 
@@ -20,7 +20,14 @@ uv run cryosparc2d-axis-search \
   --volume-output volume
 ```
 
-Use `--axis-family 2fold` for one family or
+For example, add `--symmetry D7 --axis-family 7fold` for the principal D7 axis,
+or `--symmetry O --axis-family 4fold` for an octahedral fourfold axis. Blank
+family selection searches all records. Inequivalent directions have separate
+names, such as `3fold` and `3fold-2` for C3; selecting one does not select both.
+See [axis families and conventions](docs/research/cryosparc-point-groups.md#axis-search).
+C1 has no nontrivial symmetry axes and is rejected before job creation.
+
+With the default I symmetry, use `--axis-family 2fold` for one family or
 `--axis-family 2fold,5fold` for a subset. Repeat `--axis-roll`, for example
 `--axis-roll 2fold=10 --axis-roll 3fold=-5`, for final display-only rotation.
 The command also accepts the documented score, shift, proximity, comparison,
@@ -92,7 +99,7 @@ The job:
 - CryoSPARC Tools: `~=5.0.0`, following the official minor-version matching rule
 - Python: 3.10–3.12
 - Refinement source: NU Refinement or Local Refinement
-- Symmetry: `C1` or CryoSPARC `I`
+- Symmetry: `Cn`, `Dn` (positive integer `n`, e.g. `C3`, `D7`), `T`, `O`, or `I`
 
 This uses CryoSPARC's supported External Job API. Running the command creates a job inside the selected workspace, but does not permanently register a new built-in job type in Job Builder.
 
@@ -111,59 +118,7 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-## Desktop GUI (two main pages)
-
-Start the launcher from this checkout:
-
-```bash
-uv sync
-uv run cryosparc2d-gui
-```
-
-For an existing activated Conda/Python environment:
-
-```bash
-python -m pip install -e .
-cryosparc2d-gui
-```
-
-The GUI uses Tk/ttk. Run it on the desktop machine where the command-line
-workflow already works, or use a remote desktop / X forwarding. The Python
-interpreter must include Tk (for example, the `tk` package in a Conda
-environment, or the matching `python3-tk` package for a system Python).
-`python -m tkinter` checks whether that interpreter can open a window.
-No GUI dependency is added to the scientific environment.
-
-1. Enter the CryoSPARC URL, Project UID and Workspace UID at the top.
-   **Login instructions** copies the CryoSPARC Tools token-login command for
-   the same Python interpreter. Complete it in a terminal before running.
-2. Choose **Class Orientation** for pose-assisted Class Camera Orientation
-   matching, or **Axis Search** for image-only 2fold/3fold/5fold ranking in the
-   supported CryoSPARC `I` convention.
-3. Fill in the source job UIDs. Expand **Show advanced settings** for output
-   names, scoring, Near-Axis Refinement parameters and rendering controls.
-   Blank optional fields preserve the CLI defaults. In Class Orientation,
-   **Interactive class numbers** requests rotated volumes only; it does not
-   filter which selected classes are matched. For repeatable display rolls,
-   use `2fold=90;3fold=30`.
-4. Click **Run selected workflow**. This creates an actual CryoSPARC External
-   Job. The GUI runs the same command-line workflow in a child process and
-   displays its logs without freezing the window. Only one run is allowed at
-   a time. Keep the window open until it finishes; closing is blocked during
-   a run because safe External Job cancellation is not implemented.
-5. Use **Open CryoSPARC** to open the server and find the new External Job in
-   the workspace you entered. Scientific outputs and result previews remain
-   in CryoSPARC; the launcher does not embed a separate result viewer.
-
-**Save settings / Load settings** explicitly saves or restores both pages as
-versioned JSON. No password or token is collected or saved by the launcher.
-**Copy command** copies a POSIX-shell command for reproducible terminal runs.
-Settings edited during a run apply to the next run. Failures show the exit
-code and logs; retrying creates another job, so inspect the failed job first.
-The desktop launcher does not submit to Slurm. It runs computations on its own host,
-with the same connectivity and filesystem requirements as the CLI.
-
-### Multi-user web launcher (Abyss)
+## Multi-user web launcher (Abyss)
 
 The web launcher adds individual CryoSPARC sign-in, private run histories,
 responsive deep-ocean styling, and a persistent sequential queue with local or
@@ -188,10 +143,14 @@ See [deployment, authentication and Slurm setup](docs/web-launcher.md) and the
 [example configuration](docs/web-config.example.json). Real deployment needs
 the lab's HTTPS endpoint, a dedicated submission account and shared compute paths.
 
-GUI tests are in `tests/test_gui.py`. Validation, settings, worker routing and
-process lifecycle tests run headlessly. The Tk smoke test runs only when a
-desktop display is available (for example, `xvfb-run -a python -m pytest tests/test_gui.py -q`). Real-server verification still requires a configured
-CryoSPARC instance and representative input jobs.
+The Tk/ttk desktop launcher and `cryosparc2d-gui` command have been retired.
+Use the web launcher or the workflow CLI commands instead; reinstall the package
+to refresh installed command entry points.
+
+Shared argument validation tests are in `tests/test_workflow_config.py`;
+web launch and execution tests run without a desktop display. Real-server
+verification still requires a configured CryoSPARC instance and representative
+input jobs.
 
 ## Update an editable installation
 
@@ -402,9 +361,14 @@ keep their original `blob/idx`, including gaps; they are never renumbered.
   frequency band and soft circular mask; it does not rerank cameras, define a
   second-best margin, or represent a probability.
 - Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
-- Version 0.1 rejects symmetry conventions other than `C1` and CryoSPARC `I`.
-  Support for `C<n>`, `D<n>`, and `T` is deferred until convention integration
-  tests are available.
+- Class Orientation accepts `Cn`, `Dn`, `T`, `O`, and `I`; web users enter the
+  name in the Symmetry field. `I1`, `I2`, and helical/reflection groups are
+  unsupported. Axis Search accepts the same point groups except C1, which has
+  no nontrivial symmetry axes.
+- Inputs must use the declared symmetry-aligned map coordinates. Local convention
+  tests pass; live CryoSPARC operator/projection validation remains pending,
+  including the inferred T/O embeddings. See
+  [coordinate conventions and sources](docs/research/cryosparc-point-groups.md).
 - Static Class Results use the same vertical display orientation as the
   CryoSPARC UI. Matching arrays, registered MRCS data, scores, and Camera
   Metadata are not flipped.

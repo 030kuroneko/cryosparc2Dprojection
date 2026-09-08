@@ -10,9 +10,9 @@ from cryosparc_2d_projection.camera import (
 )
 
 
-@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
-def test_camera_folding_rejects_symmetry_outside_v0_1_support(symmetry):
-    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+@pytest.mark.parametrize("symmetry", ["C0", "D0", "C-2", "D1.5", "I1", "I2", "C01", "", "Cn"])
+def test_camera_folding_rejects_unsupported_symmetry(symmetry):
+    with pytest.raises(ValueError, match="Supported symmetry:"):
         fold_camera_rotations(np.eye(3)[None], symmetry)
 
 
@@ -45,11 +45,11 @@ def test_class_camera_solver_reproduces_an_identity_camera():
     assert np.isclose(result.match_score, 1.0)
 
 
-@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
-def test_class_camera_solver_rejects_symmetry_outside_v0_1_support(symmetry):
+@pytest.mark.parametrize("symmetry", ["C0", "D0", "C-2", "D1.5", "I1", "I2", "C01", "", "Cn"])
+def test_class_camera_solver_rejects_unsupported_symmetry(symmetry):
     volume = np.zeros((3, 3, 3), dtype=np.float32)
 
-    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+    with pytest.raises(ValueError, match="Supported symmetry:"):
         solve_class_camera(
             volume.sum(axis=0),
             volume,
@@ -202,3 +202,22 @@ def test_class_camera_solver_accepts_batched_2d_pose_angles():
 
     expected = Rotation.from_euler("z", -90, degrees=True).as_matrix()
     assert np.allclose(result.rotation_matrix, expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("symmetry", ["D1", "D3", "D7"])
+def test_dihedral_cameras_fold_about_cryosparc_y_dyad(symmetry):
+    reference = Rotation.from_euler("xyz", [17, 31, 43], degrees=True).as_matrix()
+    y_dyad = np.diag([-1., 1., -1.])
+    folded = fold_camera_rotations(np.array([reference, reference @ y_dyad]), symmetry)
+    np.testing.assert_allclose(folded, [reference, reference], atol=1e-12)
+
+
+@pytest.mark.parametrize("mate", [
+    Rotation.from_euler("z", 120, degrees=True).as_matrix(),
+    np.array([[-1., 0., 0.], [0., 1/3, 2*np.sqrt(2)/3], [0., 2*np.sqrt(2)/3, -1/3]]),
+])
+def test_tetrahedral_cameras_use_z_threefold_and_tilted_twofold(mate):
+    # Published T generators: Z threefold and (0, sqrt(2/3), sqrt(1/3)) dyad.
+    reference = Rotation.from_euler("xyz", [17, 31, 43], degrees=True).as_matrix()
+    folded = fold_camera_rotations([reference, reference @ mate], "T")
+    np.testing.assert_allclose(folded, [reference, reference], atol=1e-12)

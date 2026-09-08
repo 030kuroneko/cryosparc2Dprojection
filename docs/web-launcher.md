@@ -3,7 +3,13 @@
 The Abyss (deep-ocean) web UI supports Class Orientation and Axis Search,
 individual CryoSPARC sign-in, private job histories, versioned settings files,
 and a durable sequential queue. Closing a browser or signing out does not stop
-a submitted job. The existing desktop launcher and CLI remain available.
+a submitted job. The workflow CLI commands remain available; the Tk/ttk desktop launcher has been retired.
+
+The top-right Light/Dark control is available on the sign-in screen and every
+workflow page. It changes the entire launcher palette, including Slurm settings
+and activity logs, without changing scientific rendering options. The preference
+is saved in this browser for this site only; no credentials are stored with it.
+If browser storage is blocked, switching still works for the current page.
 
 ## Execution and Slurm
 

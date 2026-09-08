@@ -8,7 +8,7 @@ from cryosparc_2d_projection.projection import (
     find_projection_shift,
     project_volume_at_rotation,
 )
-from cryosparc_2d_projection.symmetry import SupportedSymmetry
+from cryosparc_2d_projection.symmetry import SupportedSymmetry, symmetry_operators
 
 
 @dataclass(frozen=True)
@@ -76,9 +76,9 @@ def fold_camera_rotations(camera_matrices, symmetry):
         raise ValueError("at least one camera rotation is required")
 
     supported_symmetry = SupportedSymmetry.parse(symmetry)
-    if supported_symmetry is SupportedSymmetry.C1:
+    if supported_symmetry == SupportedSymmetry.C1:
         return camera_matrices.copy()
-    symmetry_matrices = Rotation.create_group(supported_symmetry.value).as_matrix()
+    symmetry_matrices = symmetry_operators(supported_symmetry)
     folded = camera_matrices.copy()
     reference = camera_matrices[0]
 

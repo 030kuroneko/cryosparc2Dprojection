@@ -95,18 +95,18 @@ class AxisResultPanelRow:
         return AXIS_RESULT_COLUMNS
 
 
-def parse_axis_rolls(values):
+def parse_axis_rolls(values, *, symmetry="I"):
     """Parse repeatable ``family=degrees`` display-only overrides."""
 
     result = {}
     for value in values or ():
         try:
             family_name, degrees_text = value.split("=", 1)
-            family = get_axis_family("I", family_name.strip()).name
+            family = get_axis_family(symmetry, family_name.strip()).name
             degrees = float(degrees_text)
         except (TypeError, ValueError) as error:
             raise ValueError(
-                "axis roll must use FAMILY=DEGREES with 2fold, 3fold, or 5fold"
+                "axis roll must use FAMILY=DEGREES with a family from the selected symmetry"
             ) from error
         if not np.isfinite(degrees):
             raise ValueError("axis roll degrees must be finite")

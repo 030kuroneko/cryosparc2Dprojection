@@ -21,6 +21,24 @@
 }
 body {
   margin: 0;
+  padding-top: 56px;
+}
+.theme-toolbar {
+  position: fixed;
+  top: 0;
+  inset-inline: 0;
+  height: 56px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 20px;
+  background: #0d1725;
+  border-bottom: 1px solid var(--line);
+}
+#theme-toggle {
+  min-width: 92px;
+  min-height: 40px;
 }
 button,
 input,
@@ -124,7 +142,7 @@ small,
 .shell {
   display: grid;
   grid-template-columns: 218px minmax(0, 1fr);
-  min-height: 100vh;
+  min-height: calc(100vh - 56px);
   background:
     radial-gradient(ellipse at 100% 0, #163148 0, transparent 48%), #0a111c;
 }
@@ -133,8 +151,8 @@ small,
   border-right: 1px solid #223647;
   background: #0d1725;
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: 56px;
+  height: calc(100vh - 56px);
   display: flex;
   flex-direction: column;
 }
@@ -554,7 +572,7 @@ pre {
   padding-top: 18px;
 }
 .login-screen {
-  min-height: 100vh;
+  min-height: calc(100vh - 56px);
   display: grid;
   grid-template-columns: 1fr 1fr;
   background:
@@ -640,6 +658,155 @@ pre {
   inset: 64px 10px;
   transform: rotate(0);
   border-color: #3d7a7a;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  color: #203d61;
+  background: #f8fafd;
+  --line: #dce3ec;
+  --accent: #2465ae;
+  --muted: #506b8b;
+}
+:root[data-theme="light"] .shell {
+  background: #f8fafd;
+}
+:root[data-theme="light"] .login-screen {
+  background: #fafcff;
+}
+:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .theme-toolbar {
+  background: #f3f7fc;
+  border-color: var(--line);
+}
+:root[data-theme="light"] button {
+  color: #31567e;
+  background: #ffffff;
+  border-color: #d4deea;
+}
+:root[data-theme="light"] button:hover {
+  background: #edf3fb;
+}
+:root[data-theme="light"] a,
+:root[data-theme="light"] .eyebrow,
+:root[data-theme="light"] .subtitle,
+:root[data-theme="light"] .sidebar-note p,
+:root[data-theme="light"] .field,
+:root[data-theme="light"] .connection label,
+:root[data-theme="light"] .check-row label,
+:root[data-theme="light"] .execution label,
+:root[data-theme="light"] .login-card label,
+:root[data-theme="light"] .deliverables,
+:root[data-theme="light"] .action-bar p,
+:root[data-theme="light"] summary {
+  color: #486588;
+}
+:root[data-theme="light"] .nav-item,
+:root[data-theme="light"] .quiet {
+  color: #486588;
+  background: transparent;
+}
+:root[data-theme="light"] .quiet:hover,
+:root[data-theme="light"] a:hover {
+  color: #164e8c;
+}
+:root[data-theme="light"] .nav-item.active {
+  color: #194f8b;
+  background: #e5effc;
+  box-shadow: inset 2px 0 #377ecd;
+}
+:root[data-theme="light"] .card {
+  background: #ffffff;
+  box-shadow: 0 8px 30px #254c7510;
+}
+:root[data-theme="light"] .execution {
+  background: #f5f8fd;
+}
+:root[data-theme="light"] .server-field span {
+  color: #31567e;
+}
+:root[data-theme="light"] input:not([type="checkbox"]),
+:root[data-theme="light"] select {
+  background: #fcfdff;
+  border-color: #ccd8e7;
+  color: #203d61;
+}
+:root[data-theme="light"] input::placeholder {
+  color: #617a98;
+}
+:root[data-theme="light"] .badge,
+:root[data-theme="light"] .number {
+  color: #345f93;
+  border-color: #abc8eb;
+}
+:root[data-theme="light"] details,
+:root[data-theme="light"] .job-list,
+:root[data-theme="light"] .page-footer,
+:root[data-theme="light"] .login-art {
+  border-color: var(--line);
+}
+:root[data-theme="light"] .divider {
+  background: var(--line);
+}
+:root[data-theme="light"] summary:after,
+:root[data-theme="light"] .deliverables li:before,
+:root[data-theme="light"] .login-card .server {
+  color: #376da9;
+}
+:root[data-theme="light"] .primary {
+  background: #2465ae;
+  border-color: #2465ae;
+  color: #ffffff;
+}
+:root[data-theme="light"] .primary:hover {
+  background: #184e8b;
+}
+:root[data-theme="light"] .action-bar {
+  background: #f8fafdf5;
+  border-color: var(--line);
+}
+:root[data-theme="light"] .status-dot {
+  background: #2465ae;
+}
+:root[data-theme="light"] .error,
+:root[data-theme="light"] .field-error,
+:root[data-theme="light"] .job-state.failed,
+:root[data-theme="light"] .job-state.unknown {
+  color: #ab3e29;
+}
+:root[data-theme="light"] .job-row {
+  background: #ffffff;
+  border-color: var(--line);
+}
+:root[data-theme="light"] .job-row:hover,
+:root[data-theme="light"] .job-row.selected {
+  background: #edf3fb;
+}
+:root[data-theme="light"] .job-row .meta,
+:root[data-theme="light"] .empty,
+:root[data-theme="light"] #log-job,
+:root[data-theme="light"] .page-footer,
+:root[data-theme="light"] .login-art > span {
+  color: #506b8b;
+}
+:root[data-theme="light"] .job-state {
+  color: #245e98;
+}
+:root[data-theme="light"] pre {
+  background: #f4f7fb;
+  border-color: var(--line);
+  color: #345979;
+}
+:root[data-theme="light"] .mark,
+:root[data-theme="light"] .mark:after {
+  border-color: #417dbc;
+}
+:root[data-theme="light"] .orbits {
+  border-color: #8eb6e2;
+  background: radial-gradient(circle, #ffffff80, transparent 65%);
+  box-shadow: 0 0 100px #5496dc22;
+}
+:root[data-theme="light"] .orbits i {
+  border-color: #679bd0;
 }
 @media (min-width: 1550px) {
   main {

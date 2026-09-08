@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for the GUI feature branch.
+Superseded by [ADR 0016](0016-retire-desktop-launcher.md).
+Originally accepted for the GUI feature branch.
 
 ## Decision
 

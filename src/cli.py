@@ -67,7 +67,7 @@ def build_parser():
         "--symmetry",
         type=parse_supported_symmetry,
         default="C1",
-        help="Refinement symmetry (v0.1: C1 or I)",
+        help="Refinement symmetry: Cn, Dn (positive integer n), T, O, I; e.g. C3 or D7",
     )
     parser.add_argument(
         "--classes",

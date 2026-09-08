@@ -88,3 +88,16 @@ def test_explicit_lan_http_listens_on_all_interfaces_with_exact_origin(tmp_path,
     main(['--url', 'https://cryo.example', '--host', '0.0.0.0',
           '--public-url', 'http://192.168.1.20:40000', '--data-dir', str(tmp_path)])
     assert 'unencrypted' in capsys.readouterr().out
+
+
+def test_web_help_works_without_retired_desktop_modules():
+    import subprocess
+    result = subprocess.run([sys.executable, '-c', """
+import sys
+sys.modules['cryosparc_2d_projection.gui'] = None
+sys.modules['cryosparc_2d_projection.gui_model'] = None
+from cryosparc_2d_projection.web import main
+main(['--help'])
+"""], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert '--port' in result.stdout

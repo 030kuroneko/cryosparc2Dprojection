@@ -4,7 +4,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 pytest.importorskip('flask', reason='Install the web extra to test the HTTP launcher')
-from cryosparc_2d_projection.gui_model import default_values
+from cryosparc_2d_projection.workflow_config import default_values
 
 from cryosparc_2d_projection.web import create_app
 
@@ -190,10 +190,37 @@ def test_ui_schema_covers_cli_fields_and_server_only_profiles(app):
     assert response.status_code == 200
     for name in ('orientation', 'axis'):
         fields = response.json['workflows'][name]['fields']
-        assert {f['key'] for f in fields} == set(default_values(name)) - {'url'}
+        assert {f['key'] for f in fields} == {
+            key for key in default_values(name) if key != 'url' and not key.endswith('_output')}
     assert response.json['profiles'] == [{'id': 'local', 'label': 'Local · sequential', 'backend': 'local'}]
     assert client.get('/').status_code == 200
     assert client.get('/assets/app.js').status_code == 200
+
+
+@pytest.mark.parametrize('workflow,expected', [
+    ('orientation', {'select_output': 'particles_selected', 'templates_output': 'templates_selected',
+                     'refinement_particles_output': 'particles', 'volume_output': 'volume'}),
+    ('axis', {'select_output': 'templates_selected', 'volume_output': 'volume'}),
+])
+def test_hidden_source_outputs_use_workflow_defaults(app, workflow, expected):
+    client = app.test_client()
+    headers = login(client)
+    fields = client.get('/api/schema').json['workflows'][workflow]['fields']
+    assert not (set(expected) & {field['key'] for field in fields})
+    values = {field['key']: field['default'] for field in fields}
+    values.update(project='P1', workspace='W2', select_job='J3')
+    values['refinement_job' if workflow == 'orientation' else 'volume_job'] = 'J4'
+    response = client.post('/api/jobs', json=dict(submission(), workflow=workflow, values=values), headers=headers)
+    assert response.status_code == 201
+    assert {key: response.json['values'][key] for key in expected} == expected
+
+
+def test_theme_control_and_script_are_available_before_login(app):
+    client = app.test_client()
+    page = client.get('/').text
+    assert 'id="theme-toggle"' in page
+    assert page.index('/assets/theme.js') < page.index('/assets/app.css')
+    assert client.get('/assets/theme.js').status_code == 200
 
 
 def test_login_failure_is_generic_and_foreign_origin_cannot_submit(app):
@@ -438,3 +465,41 @@ while not (directory.parent / 'release').exists():
     finally:
         (tmp_path / 'release').touch()
         app.extensions['dispatcher'].close()
+
+
+def test_symmetry_field_allows_arbitrary_point_group_order(app):
+    client = app.test_client()
+    login(client)
+    fields = client.get('/api/schema').json['workflows']['orientation']['fields']
+    symmetry = next(field for field in fields if field['key'] == 'symmetry')
+    assert symmetry['choices'] == []
+    assert 'Cn' in symmetry['hint'] and 'Dn' in symmetry['hint']
+
+
+@pytest.mark.parametrize('symmetry', ['C3', 'C11', 'D1', 'D7', 'T', 'O'])
+def test_submitted_job_preserves_point_group_symmetry(app, symmetry):
+    client = app.test_client()
+    headers = login(client)
+    response = client.post('/api/jobs', json=submission(symmetry=symmetry), headers=headers)
+    assert response.status_code == 201
+    assert response.json['values']['symmetry'] == symmetry
+
+
+def test_axis_schema_and_submission_support_selected_symmetry(app):
+    client = app.test_client()
+    headers = login(client)
+    fields = {f['key']: f for f in client.get('/api/schema').json['workflows']['axis']['fields']}
+    assert fields['symmetry']['default'] == 'I'
+    assert fields['symmetry']['group'] == 'basic'
+    assert fields['symmetry']['choices'] == []
+    assert 'I convention only' not in fields['axis_family']['hint']
+    values = default_values('axis')
+    values.update(project='P1', workspace='W1', select_job='J1', volume_job='J2',
+                  symmetry='O', axis_family='4fold', axis_roll='4fold=30')
+    values.pop('url')
+    body = dict(submission(), workflow='axis', values=values)
+    response = client.post('/api/jobs', json=body, headers=headers)
+    assert response.status_code == 201
+    assert response.json['values']['symmetry'] == 'O'
+    body['values']['axis_family'] = '5fold'
+    assert client.post('/api/jobs', json=body, headers=headers).status_code == 400

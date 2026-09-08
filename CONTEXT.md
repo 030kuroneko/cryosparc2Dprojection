@@ -33,7 +33,7 @@ A presentation-only three-column Class Result for the lowest Class Number, attac
 _Avoid_: CryoSPARC Output Thumbnail, Axis Search Dashboard Preview, scientific output data
 
 **Axis Search Dashboard Preview**:
-A presentation-only summary attached to both the dedicated axis-search preview output card and the job tile, whose underlying dataset contains the aligned classes in displayed order. It shows the first preview page with each result row labelled outside its scientific image panels by Axis Family, family-local rank, Class Number, four-decimal Axis Class Score, and optional four-decimal Near-Axis score plus three-decimal Near-Axis angular distance in degrees. Results are grouped 2fold, 3fold, then 5fold and ranked within each family; the same class remains visible in every matching family. Upload failure is warned without failing completed scientific outputs.
+A presentation-only summary attached to both the dedicated axis-search preview output card and the job tile, whose underlying dataset contains the aligned classes in displayed order. It shows the first preview page with each result row labelled outside its scientific image panels by Axis Family, family-local rank, Class Number, four-decimal Axis Class Score, and optional four-decimal Near-Axis score plus three-decimal Near-Axis angular distance in degrees. Results follow the selected registry order (2fold, 3fold, then 5fold for I) and are ranked within each family; the same class remains visible in every matching family. Upload failure is warned without failing completed scientific outputs.
 _Avoid_: CryoSPARC Output Thumbnail, scientific output data, complete Event Log preview
 
 **Camera View Render**:
@@ -45,7 +45,7 @@ A deterministic member of the symmetry-equivalent Class Camera Orientations. It 
 _Avoid_: Unique orientation, true orientation
 
 **Supported Symmetry Convention**:
-The symmetry coordinate convention whose pose folding and Class Camera Orientation behavior have been explicitly accepted for this tool. Version 0.1 supports no symmetry (`C1`) and CryoSPARC's documented icosahedral convention (`I`).
+The symmetry coordinate convention whose pose folding and Class Camera Orientation behavior have been explicitly accepted for this tool. Class Orientation accepts `Cn`, `Dn` (positive integer `n`), `T`, `O`, and `I` in the coordinate conventions declared in `docs/research/cryosparc-point-groups.md`. Local mathematical checks and live CryoSPARC validation are distinct; live validation remains pending. Axis Search uses the same conventions except C1, which has no nontrivial symmetry axes; its default remains I.
 _Avoid_: Treating `I1`, `I2`, or another unverified convention as an alias
 
 **Class Result**:
@@ -121,7 +121,7 @@ The complete CryoSPARC workflow that loads selected class averages and a map, pe
 _Avoid_: Exact-Axis Ranking, axis-search algorithm
 
 **Axis Family**:
-A family of candidate directions that shares one symmetry-axis order and canonical camera convention, such as 2fold, 3fold, or 5fold.
+A directed orbit of symmetry-axis viewing directions with one maximal rotation order and canonical camera convention. Names such as 2fold, 3fold, and 5fold identify the first orbit of each order; suffixes such as 3fold-2 distinguish additional inequivalent directed orbits. Opposite poles are merged only when related by a proper symmetry rotation.
 _Avoid_: Class, search result, individual candidate
 
 **Axis Class Score**:

@@ -129,6 +129,13 @@ class AxisSearchResult:
     families: dict[str, AxisFamilyRanking]
     rows: tuple[AxisCandidate, ...]
 
+    @property
+    def symmetry(self):
+        symmetries = {ranking.family.symmetry for ranking in self.families.values()}
+        if len(symmetries) != 1:
+            raise ValueError("Axis Search results must have one symmetry convention")
+        return next(iter(symmetries))
+
 
 @dataclass(frozen=True)
 class AxisProximityConfig:
@@ -214,6 +221,7 @@ def refine_axis_candidates(
                 grid.volume,
                 grid.pixel_size,
                 config,
+                family=exact_result.families[candidate.family_name].family,
                 progress_callback=progress_callback,
             )
         )
@@ -225,21 +233,22 @@ def rank_axis_families(
     matching_map,
     *,
     families=None,
+    symmetry="I",
     class_pixel_size_A,
     map_pixel_size_A,
     config=None,
     progress_callback=None,
 ):
-    """Rank the complete supported I registry or a requested family subset."""
+    """Rank the selected symmetry registry or a requested family subset."""
 
     config = config or AxisSearchConfig()
     requested = (
-        {record.name for record in axis_family_records("I")}
+        {record.name for record in axis_family_records(symmetry)}
         if families is None
-        else {get_axis_family("I", family).name for family in families}
+        else {get_axis_family(symmetry, family).name for family in families}
     )
     ordered_records = tuple(
-        record for record in axis_family_records("I") if record.name in requested
+        record for record in axis_family_records(symmetry) if record.name in requested
     )
     if not ordered_records:
         raise ValueError("at least one Axis Family is required")
@@ -281,6 +290,7 @@ def rank_axis_family(
     matching_map,
     *,
     family,
+    symmetry="I",
     class_pixel_size_A,
     map_pixel_size_A,
     config=None,
@@ -292,7 +302,7 @@ def rank_axis_family(
     if not isinstance(config, AxisSearchConfig):
         raise TypeError("config must be an AxisSearchConfig")
     family_record = (
-        family if isinstance(family, AxisFamilyRecord) else get_axis_family("I", family)
+        family if isinstance(family, AxisFamilyRecord) else get_axis_family(symmetry, family)
     )
     classes = _validate_class_averages(class_averages)
     first_class = next(iter(classes.values()))
@@ -732,9 +742,9 @@ def _refine_candidate(
     pixel_size_A,
     config,
     *,
+    family,
     progress_callback,
 ):
-    family = get_axis_family("I", candidate.family_name)
     score_config = BandLimitedScoreConfig(
         low_resolution_A=candidate.score_metadata[
             "band_low_resolution_A_requested"

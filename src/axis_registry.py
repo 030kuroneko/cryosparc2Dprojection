@@ -2,15 +2,19 @@
 
 The registry is deliberately data driven.  The search code consumes these
 records and does not need to know that the first supported convention is
-icosahedral.  The numeric records are the reconstructed CryoSPARC ``I``
-convention documented in ``docs/specs/symmetry-axis-class-search.md``.
+icosahedral.  New registries enumerate distinct directed-axis orbits from the shared
+CryoSPARC operator adapter. The existing I cameras remain unchanged.
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
+import re
 from types import MappingProxyType
 
 import numpy as np
 from scipy.spatial.transform import Rotation
+
+from cryosparc_2d_projection.symmetry import SupportedSymmetry, symmetry_operators
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,12 @@ class AxisFamilyRecord:
         the exact-axis camera or affect scoring.
         """
 
+        if self.canonical_presentation_rule == "cartesian_reference_axis_horizontal":
+            return AxisCanonicalPresentation(
+                rule=self.canonical_presentation_rule,
+                camera_matrix=self.canonical_camera_matrix,
+                roll_degrees=float(roll_degrees),
+            )
         reference_family, projected_axis = _nearest_cross_family_axis(self)
         image_y = self.canonical_camera_matrix[1]
         if abs(float(projected_axis @ image_y)) > 1e-8:
@@ -131,8 +141,8 @@ class AxisFamilyRecord:
 
 def _normalize_family_name(value):
     normalized = str(value).strip().lower()
-    if normalized not in {"2fold", "3fold", "5fold"}:
-        raise ValueError("axis family must be one of 2fold, 3fold, 5fold")
+    if not re.fullmatch(r"(?:[2-9]|[1-9][0-9]+)fold(?:-(?:[2-9]|[1-9][0-9]+))?", normalized):
+        raise ValueError("axis family must use Nfold or Nfold-ORBIT")
     return normalized
 
 
@@ -155,19 +165,21 @@ class AxisFamilyRegistry:
 
     @classmethod
     def for_symmetry(cls, symmetry):
-        normalized = str(symmetry).strip().upper()
-        if normalized != "I":
-            raise ValueError("axis-family search only supports I")
-        return ICOSAHEDRAL_AXIS_FAMILY_REGISTRY
+        normalized = SupportedSymmetry.parse(symmetry).value
+        if normalized == "C1":
+            raise ValueError("C1 has no nontrivial symmetry axes; use Class Orientation")
+        if normalized == "I":
+            return ICOSAHEDRAL_AXIS_FAMILY_REGISTRY
+        return _operator_axis_registry(normalized)
 
     def records(self):
         return self._records
 
     def lookup(self, family):
-        normalized = _normalize_family_name(family)
         try:
+            normalized = _normalize_family_name(family)
             return self._by_name[normalized]
-        except KeyError as error:
+        except (KeyError, ValueError) as error:
             available = ", ".join(record.name for record in self._records)
             raise ValueError(
                 f"unknown axis family {family!r}; choose one of {available}"
@@ -232,9 +244,9 @@ ICOSAHEDRAL_AXIS_FAMILY_REGISTRY = AxisFamilyRegistry(
 def _nearest_cross_family_axis(record):
     """Return the nearest directed axis from another registered family."""
 
-    group = Rotation.create_group(record.symmetry).as_matrix()
+    group = symmetry_operators(record.symmetry)
     candidates = []
-    for other in ICOSAHEDRAL_AXIS_FAMILY_REGISTRY.records():
+    for other in AxisFamilyRegistry.for_symmetry(record.symmetry).records():
         if other.name == record.name:
             continue
         # Vectors are rows throughout the pose/camera code.  Include both
@@ -295,3 +307,61 @@ def get_axis_family(symmetry, family=None):
     if family is None:
         raise TypeError("get_axis_family requires symmetry and family")
     return AxisFamilyRegistry.for_symmetry(symmetry).lookup(family)
+
+
+@lru_cache(maxsize=64)
+def _operator_axis_registry(symmetry):
+    """Keep one representative per directed orbit, using maximal axis order.
+
+    Opposite poles are merged only when a proper group rotation relates them.
+    Names are ordered by fold order, then by decreasing (z, y, x) direction.
+    """
+    group = symmetry_operators(symmetry)
+    directions = []
+    for vector in Rotation.from_matrix(group).as_rotvec():
+        angle = np.linalg.norm(vector)
+        if angle < 1e-8:
+            continue
+        axis = vector / angle
+        for direction in (axis, -axis):
+            if not any(np.allclose(direction, other, atol=1e-8, rtol=0)
+                       for other in directions):
+                directions.append(direction)
+    directions.sort(key=lambda v: tuple(-np.round(v[::-1], 10)))
+    orbits = []
+    for direction in directions:
+        if any(np.any(np.linalg.norm(orbit - direction, axis=1) < 1e-8)
+               for _, _, orbit in orbits):
+            continue
+        rotated = direction @ group
+        order = int(np.count_nonzero(np.linalg.norm(rotated - direction, axis=1) < 1e-8))
+        orbit = []
+        for member in rotated:
+            if not any(np.allclose(member, other, atol=1e-8, rtol=0) for other in orbit):
+                orbit.append(member)
+        orbits.append((order, direction, np.asarray(orbit)))
+    orbits.sort(key=lambda item: item[0])
+    records = []
+    counts = {}
+    for order, direction, orbit in orbits:
+        counts[order] = counts.get(order, 0) + 1
+        name = f"{order}fold" + (f"-{counts[order]}" if counts[order] > 1 else "")
+        # Fix display roll with a Cartesian reference, even for one-axis groups.
+        horizontal = np.array([1., 0., 0.])
+        if abs(float(horizontal @ direction)) > .9:
+            horizontal = np.array([0., 1., 0.])
+        horizontal -= (horizontal @ direction) * direction
+        horizontal /= np.linalg.norm(horizontal)
+        camera = np.array([horizontal, np.cross(direction, horizontal), direction])
+        undirected = []
+        for member in orbit:
+            if not any(abs(float(member @ other)) > 1 - 1e-8 for other in undirected):
+                undirected.append(member)
+        records.append(AxisFamilyRecord(
+            symmetry=symmetry, name=name,
+            undirected_axis_count=len(undirected), directed_axis_count=len(orbit),
+            representative_view_direction=direction, canonical_camera_matrix=camera,
+            roll_period_degrees=360. / order,
+            canonical_presentation_rule="cartesian_reference_axis_horizontal",
+        ))
+    return AxisFamilyRegistry(symmetry, records)

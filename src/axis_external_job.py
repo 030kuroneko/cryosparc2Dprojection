@@ -5,6 +5,8 @@ from time import monotonic
 
 import numpy as np
 
+from cryosparc_2d_projection.axis_registry import AxisFamilyRegistry
+
 from cryosparc_2d_projection.axis_search import (
     AxisProximityConfig,
     AxisSearchConfig,
@@ -36,6 +38,7 @@ def run_axis_search_job(
     volume_source,
     *,
     families=None,
+    symmetry="I",
     config=None,
     proximity_config=None,
     axis_rolls=None,
@@ -50,6 +53,16 @@ def run_axis_search_job(
 ):
     """Create and execute an image-only Axis Search External Job."""
 
+    registry = AxisFamilyRegistry.for_symmetry(symmetry)
+    symmetry = registry.symmetry
+    if families is not None:
+        families = tuple(registry.lookup(name).name for name in families)
+        if not families:
+            raise ValueError("at least one Axis Family is required")
+    for name, roll in (axis_rolls or {}).items():
+        registry.lookup(name)
+        if not np.isfinite(roll):
+            raise ValueError("axis roll degrees must be finite")
     config = config or AxisSearchConfig()
     proximity_config = proximity_config or AxisProximityConfig()
     axis_rolls = dict(axis_rolls or {})
@@ -143,6 +156,7 @@ def run_axis_search_job(
                 classes,
                 matching_map,
                 families=families,
+                symmetry=symmetry,
                 class_pixel_size_A=class_pixel_size_A,
                 map_pixel_size_A=map_pixel_size_A,
                 config=config,

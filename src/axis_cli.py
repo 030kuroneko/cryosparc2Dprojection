@@ -6,14 +6,28 @@ import sys
 from cryosparc_2d_projection.axis_external_job import run_axis_search_job
 from cryosparc_2d_projection.external_job_adapter import ExternalJobSource
 from cryosparc_2d_projection.axis_presentation import parse_axis_rolls
-from cryosparc_2d_projection.axis_registry import get_axis_family
+from cryosparc_2d_projection.axis_registry import AxisFamilyRegistry
+from cryosparc_2d_projection.cli import parse_supported_symmetry
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
 from cryosparc_2d_projection.axis_search import AxisProximityConfig, AxisSearchConfig
 from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
 
+class _AxisArgumentParser(argparse.ArgumentParser):
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+        try:
+            registry = AxisFamilyRegistry.for_symmetry(parsed.symmetry)
+            if parsed.axis_family is not None:
+                parsed.axis_family = tuple(registry.lookup(name).name for name in parsed.axis_family)
+            parse_axis_rolls(parsed.axis_roll, symmetry=parsed.symmetry)
+        except ValueError as error:
+            self.error(str(error))
+        return parsed
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(description="Rank 2D classes by symmetry axis.")
+    parser = _AxisArgumentParser(description="Rank 2D classes by symmetry axis.")
     parser.add_argument("--url", required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--workspace", required=True)
@@ -22,10 +36,14 @@ def build_parser():
     parser.add_argument("--volume-job", required=True)
     parser.add_argument("--volume-output", default="volume")
     parser.add_argument(
+        "--symmetry", type=parse_supported_symmetry, default="I",
+        help="Map symmetry: Cn (n >= 2), Dn, T, O, I (default: I)",
+    )
+    parser.add_argument(
         "--axis-family",
         type=_parse_axis_families,
         metavar="FAMILY[,FAMILY...]",
-        help="Axis family or comma-separated families (default: all)",
+        help="Axis families for the selected symmetry, e.g. 4fold or 3fold-2 (default: all)",
     )
     parser.add_argument("--low-resolution-A", type=float, default=80.0)
     parser.add_argument("--high-resolution-A", type=float, default=15.0)
@@ -90,13 +108,14 @@ def main(argv=None, *, client_factory=None):
         ExternalJobSource(args.select_job, args.select_output),
         ExternalJobSource(args.volume_job, args.volume_output),
         families=args.axis_family,
+        symmetry=args.symmetry,
         config=config,
         proximity_config=AxisProximityConfig(
             cone_degrees=args.axis_cone_degrees,
             coarse_step_degrees=args.tilt_coarse_step,
             refine_step_degrees=args.tilt_refine_step,
         ),
-        axis_rolls=parse_axis_rolls(args.axis_roll),
+        axis_rolls=parse_axis_rolls(args.axis_roll, symmetry=args.symmetry),
         comparison_options=ComparisonRenderOptions(
             dpi=args.comparison_dpi,
             page_size=args.preview_page_size,
@@ -123,10 +142,8 @@ def _parse_axis_families(value):
     values = tuple(item.strip() for item in value.split(",") if item.strip())
     if not values:
         raise argparse.ArgumentTypeError("axis family list must not be empty")
-    try:
-        return tuple(get_axis_family("I", family).name for family in values)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(str(error)) from error
+    # Registry validation happens after all options, independent of their order.
+    return values
 
 
 if __name__ == "__main__":

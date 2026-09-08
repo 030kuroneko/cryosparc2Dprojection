@@ -305,8 +305,8 @@ def test_cli_rejects_removed_oblique_inspection_option():
         )
 
 
-@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
-def test_cli_rejects_symmetry_outside_v0_1_support(symmetry, capsys):
+@pytest.mark.parametrize("symmetry", ["C0", "D0", "C-2", "D1.5", "I1", "I2", "C01", "", "Cn"])
+def test_cli_rejects_unsupported_symmetry(symmetry, capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(
             [
@@ -319,4 +319,14 @@ def test_cli_rejects_symmetry_outside_v0_1_support(symmetry, capsys):
             ]
         )
 
-    assert "v0.1 only supports C1 and I" in capsys.readouterr().err
+    assert "Supported symmetry:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("symmetry", ["C2", "C11", "D1", "D7", "T", "O", "I", " c3 "])
+def test_cli_accepts_point_group_symmetry(symmetry):
+    args = build_parser().parse_args([
+        "--url", "https://cryo.example", "--project", "P1",
+        "--workspace", "W1", "--select-job", "J1", "--refinement-job", "J2",
+        "--symmetry", symmetry,
+    ])
+    assert args.symmetry == symmetry.strip().upper()

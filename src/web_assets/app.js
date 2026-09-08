@@ -155,10 +155,10 @@ function renderForm() {
     .filter((f) => f.group === "basic")
     .map(field)
     .join("");
-  $("advanced-fields").innerHTML = ["search", "rendering", "output"]
+  $("advanced-fields").innerHTML = ["search", "rendering"]
     .map(
       (group) =>
-        `<details><summary>${{ search: "Search settings", rendering: "Rendering & presentation", output: "Source output names" }[group]}</summary><div class="fields">${workflow.fields
+        `<details><summary>${{ search: "Search settings", rendering: "Rendering & presentation" }[group]}</summary><div class="fields">${workflow.fields
           .filter((f) => f.group === group)
           .map(field)
           .join("")}</div></details>`,

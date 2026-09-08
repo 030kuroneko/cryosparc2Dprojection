@@ -9,7 +9,7 @@ import sys
 import threading
 import uuid
 
-from cryosparc_2d_projection.gui_model import WORKFLOWS, build_arguments, default_values
+from cryosparc_2d_projection.workflow_config import WORKFLOWS, build_arguments, default_values
 
 TERMINAL = ('completed', 'failed', 'interrupted')
 VALIDATION_LOCK = threading.Lock()

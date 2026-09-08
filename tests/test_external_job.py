@@ -198,13 +198,13 @@ def _two_class_contrast_external_job(tmp_path):
     return project, job
 
 
-@pytest.mark.parametrize("symmetry", ["C2", "D7", "T", "O", "I1", "I2"])
-def test_external_job_rejects_symmetry_outside_v0_1_support_before_creating_job(
+@pytest.mark.parametrize("symmetry", ["C0", "D0", "C-2", "D1.5", "I1", "I2", "C01", "", "Cn"])
+def test_external_job_rejects_unsupported_symmetry_before_creating_job(
     tmp_path, symmetry
 ):
     project = InMemoryExternalJobBackend(tmp_path, {})
 
-    with pytest.raises(ValueError, match="v0.1 only supports C1 and I"):
+    with pytest.raises(ValueError, match="Supported symmetry:"):
         run_external_orientation_job(
             project,
             workspace_uid="W1",
@@ -218,7 +218,8 @@ def test_external_job_rejects_symmetry_outside_v0_1_support_before_creating_job(
     assert project.created is None
 
 
-def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
+@pytest.mark.parametrize("symmetry", ["C1", "C3", "D7", "T", "O", "I"])
+def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path, symmetry):
     select_2d = np.array(
         [(101, 0, np.pi / 2)],
         dtype=[
@@ -275,7 +276,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
         select_templates_source=SourceOutput("J10", "templates_selected"),
         refinement_source=SourceOutput("J20", "particles"),
         volume_source=SourceOutput("J20", "volume"),
-        symmetry="I",
+        symmetry=symmetry,
         interactive_class_numbers=(1,),
         render_options=ClassRenderOptions(
             map_name="sharpened",
@@ -291,7 +292,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path):
 
     results = json.loads((tmp_path / "class_orientations.json").read_text())
     assert results["cryosparc_version"] == "5.0.6"
-    assert results["symmetry"] == "I"
+    assert results["symmetry"] == symmetry
     assert results["rendering"]["map"] == "sharpened"
     assert results["presentation"] == {
         "comparison_dpi": 200,

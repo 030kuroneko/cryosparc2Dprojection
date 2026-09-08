@@ -2,7 +2,8 @@
 
 The accepted Abyss visual design now serves a multi-user Linux lab/VPN web
 launcher. This supersedes ADR 0014's desktop-only, no-web-server and no-Slurm
-constraints for this new entry point; the existing desktop launcher is retained.
+constraints for this new entry point. The desktop launcher was initially retained;
+[ADR 0016](0016-retire-desktop-launcher.md) subsequently retires it.
 Use Flask and Waitress, individual CryoSPARC authentication, server-owned job
 records and a single durable dispatch queue. This separates browser lifetimes
 from computation while reusing existing CLI validation and scientific workflows.

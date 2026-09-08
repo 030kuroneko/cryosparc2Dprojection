@@ -813,7 +813,7 @@ def _artifact(
 ):
     artifact = {
         "cryosparc_version": "5.0.6",
-        "symmetry": "I",
+        "symmetry": request.search_result.symmetry,
         "families": list(request.search_result.families),
         "family_diagnostics": {
             name: {

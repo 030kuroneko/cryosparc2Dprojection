@@ -55,6 +55,7 @@ def project_axis_reference(
     axis_family,
     *,
     pixel_size_A=1.0,
+    symmetry="I",
 ):
     """Project the unsharpened Matching Map along an exact axis.
 
@@ -67,7 +68,7 @@ def project_axis_reference(
     family = (
         axis_family
         if isinstance(axis_family, AxisFamilyRecord)
-        else get_axis_family("I", axis_family)
+        else get_axis_family(symmetry, axis_family)
     )
     volume = np.asarray(matching_map, dtype=np.float32)
     if volume.ndim != 3 or len(set(volume.shape)) != 1:

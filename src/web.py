@@ -15,8 +15,8 @@ from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from cryosparc_2d_projection.gui_model import WORKFLOWS, actions, default_values, validate_url
-from cryosparc_2d_projection.gui import BASIC, LABELS, HINTS, TITLES, DESCRIPTIONS
+from cryosparc_2d_projection.workflow_config import WORKFLOWS, actions, default_values, validate_url
+from cryosparc_2d_projection.workflow_fields import BASIC, LABELS, HINTS, TITLES, DESCRIPTIONS
 from cryosparc_2d_projection.web_jobs import JobStore
 
 WEB_LABELS = dict(LABELS, render_grid_size='Surface sampling grid size',
@@ -268,18 +268,18 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
             fields = []
             for action in actions(name):
                 key = action.dest
-                if key == 'url':
+                if key == 'url' or key.endswith('_output'):
                     continue
                 group = ('connection' if key in ('project', 'workspace') else
                          'basic' if key in BASIC[name] else
                          'rendering' if key.startswith(('render_', 'surface_', 'comparison_', 'preview_', 'auto_crop')) or key == 'axis_roll' else
-                         'output' if 'output' in key else 'search')
+                         'search')
                 label = key.replace('_', ' ').replace('resolution A', 'resolution (Å)')
                 fields.append({'key': key, 'label': WEB_LABELS.get(key, label[0].upper() + label[1:]),
                                'hint': HINTS.get(key, action.help) or '', 'required': action.required,
                                'default': defaults[key], 'group': group,
                                'type': 'boolean' if isinstance(action, argparse._StoreTrueAction) else 'text',
-                               'choices': list(action.choices) if action.choices else ['C1', 'I'] if key == 'symmetry' else []})
+                               'choices': list(action.choices) if action.choices else []})
             workflows[name] = {'title': TITLES[name], 'description': DESCRIPTIONS[name], 'fields': fields}
         profiles = [{'id': key, 'label': value.get('label', key), 'backend': value['backend']}
                     for key, value in store.profiles.items()]
@@ -291,7 +291,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     @app.get('/assets/<name>')
     def asset(name):
-        if name not in ('app.js', 'app.css'):
+        if name not in ('app.js', 'app.css', 'theme.js'):
             return jsonify(error='Not found'), 404
         return send_from_directory(Path(__file__).parent / 'web_assets', name)
 

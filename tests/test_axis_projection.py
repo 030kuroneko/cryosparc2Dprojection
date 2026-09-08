@@ -43,3 +43,11 @@ def test_axis_reference_display_orientation_is_not_caller_selectable():
 
     with pytest.raises(TypeError):
         project_axis_reference(volume, "2fold", display_orientation=False)
+
+
+def test_cyclic_z_axis_projects_along_map_z_without_icosahedral_fallback():
+    volume = np.arange(125, dtype=np.float32).reshape(5, 5, 5)
+    reference = project_axis_reference(volume, '3fold', symmetry='C3')
+    assert reference.family.symmetry == 'C3'
+    np.testing.assert_allclose(reference.projection, volume.sum(axis=0), atol=1e-6)
+    np.testing.assert_allclose(reference.rotation_matrix, np.eye(3), atol=1e-12)
