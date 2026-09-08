@@ -179,6 +179,11 @@ not through additional launch flags. `--port` changes the default `40000`.
 `--config` remains available for advanced deployments; explicit flags override it.
 All project commands now start with `cryosparc2d`; reinstall to replace the old
 entry points. CryoSPARC's official commands and SDK names are unchanged.
+
+For direct HTTP access on a trusted lab network, add
+`--host 0.0.0.0 --public-url http://YOUR-SERVER-IP:40000`. Users open that server
+IP, not `0.0.0.0`. Credentials are unencrypted in this mode; restrict network
+access to trusted lab/VPN clients.
 See [deployment, authentication and Slurm setup](docs/web-launcher.md) and the
 [example configuration](docs/web-config.example.json). Real deployment needs
 the lab's HTTPS endpoint, a dedicated submission account and shared compute paths.

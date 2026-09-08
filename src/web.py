@@ -10,6 +10,7 @@ import shutil
 import sys
 import threading
 import time
+import uuid
 from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, request, send_from_directory
@@ -48,16 +49,21 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
     config = dict(config)
     config['cryosparc_url'] = validate_url(config['cryosparc_url'].rstrip('/'))
     public = urlsplit(validate_url(config['public_url'].rstrip('/')))
+    if public.hostname in ('0.0.0.0', '::'):
+        raise ValueError('public_url must use the server IP or hostname, not a wildcard bind address')
     if public.path not in ('', '/'):
         raise ValueError('public_url must be an origin without a path')
-    if public.scheme != 'https' and not config.get('allow_http', False):
+    lan_http = public.scheme == 'http' and config.get('host') == '0.0.0.0'
+    if lan_http and public.hostname in ('localhost', '127.0.0.1', '::1'):
+        raise ValueError('Set --public-url to the actual server IP or hostname for LAN access')
+    if public.scheme != 'https' and not (config.get('allow_http', False) or lan_http):
         raise ValueError('HTTPS public_url is required; allow_http is for loopback development only')
-    if config.get('allow_http') and public.hostname not in ('localhost', '127.0.0.1', '::1'):
+    if config.get('allow_http') and not lan_http and public.hostname not in ('localhost', '127.0.0.1', '::1'):
         raise ValueError('allow_http is restricted to loopback development')
     origin = f'{public.scheme}://{public.netloc}'
     trusted_hosts = [public.hostname]
     allowed_origins = {origin}
-    loopback_http = public.scheme == 'http' and config.get('allow_http', False)
+    loopback_http = public.scheme == 'http' and config.get('allow_http', False) and not lan_http
     if loopback_http:
         trusted_hosts = list(dict.fromkeys([public.hostname, 'localhost', '127.0.0.1']))
         port = f':{public.port}' if public.port else ''
@@ -182,6 +188,11 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
     def jobs():
         return jsonify(jobs=store.list(g.identity['owner']))
 
+    @app.get('/api/request-id')
+    def request_id():
+        # LAN HTTP browsers may not expose crypto.randomUUID().
+        return jsonify(request_id=str(uuid.uuid4()))
+
     @app.post('/api/admin/unlock')
     def unlock_admin():
         body = request.get_json(silent=True)
@@ -293,7 +304,7 @@ def main(argv=None):
     parser.add_argument('--url', dest='cryosparc_url', help='CryoSPARC server URL')
     parser.add_argument('--host', help='Bind address (default: 127.0.0.1)')
     parser.add_argument('--port', type=int, help='Listen port (default: 40000)')
-    parser.add_argument('--public-url', help='User-facing HTTPS origin behind your reverse proxy')
+    parser.add_argument('--public-url', help='User-facing origin; HTTP LAN access requires --host 0.0.0.0 and the actual server IP/hostname')
     parser.add_argument('--data-dir', help='Private local state directory (default: ~/.local/state/cryosparc2d)')
     args = parser.parse_args(argv)
     try:
@@ -313,9 +324,11 @@ def main(argv=None):
     if type(config['port']) is not int or not 1 <= config['port'] <= 65535:
         parser.error('--port must be between 1 and 65535')
     if 'public_url' not in config:
+        if config['host'] == '0.0.0.0':
+            parser.error('--host 0.0.0.0 requires --public-url http://SERVER-IP:40000 (or your HTTPS origin)')
         config['public_url'] = f"http://127.0.0.1:{config['port']}"
         config['allow_http'] = True
-    if config.get('allow_http') and config.get('host', '127.0.0.1') not in ('localhost', '127.0.0.1', '::1'):
+    if config.get('allow_http') and config.get('host', '127.0.0.1') not in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
         parser.error('HTTP development mode must bind only to loopback')
     from waitress import serve
     try:
@@ -323,6 +336,8 @@ def main(argv=None):
     except (OSError, ValueError, RuntimeError) as error:
         parser.error(str(error))
     print('2D Projection web service: ' + config['public_url'], flush=True)
+    if config['host'] == '0.0.0.0' and urlsplit(config['public_url']).scheme == 'http':
+        print('WARNING: LAN HTTP is unencrypted. Restrict access to your trusted lab network/VPN.', flush=True)
     print('Slurm administrator key file: ' + str(Path(config['data_dir']).resolve() / 'admin-token'), flush=True)
     try:
         serve(app, host=config['host'], port=config['port'], threads=8,

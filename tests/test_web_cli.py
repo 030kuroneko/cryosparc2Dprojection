@@ -31,7 +31,7 @@ def test_all_project_commands_use_cryosparc2d_prefix():
 
 @pytest.mark.parametrize('flags, message', [
     (['--port', '0'], '65535'),
-    (['--host', '0.0.0.0'], 'loopback'),
+    (['--host', '0.0.0.0'], '--public-url'),
     (['--public-url', 'http://lab.example'], 'HTTPS'),
     (['--slurm'], 'unrecognized'),
 ])
@@ -69,3 +69,22 @@ def test_public_url_flag_replaces_development_http_policy(tmp_path, monkeypatch)
         assert 'Secure' in response.headers['Set-Cookie']
     monkeypatch.setattr(waitress, 'serve', serve)
     main(['--config', str(config), '--public-url', 'https://lab.example'])
+
+
+def test_explicit_lan_http_listens_on_all_interfaces_with_exact_origin(tmp_path, monkeypatch, capsys):
+    import waitress
+    def serve(app, **options):
+        assert options['host'] == '0.0.0.0'
+        assert options['port'] == 40000
+        client = app.test_client()
+        response = client.get('/api/session', base_url='http://192.168.1.20:40000')
+        assert response.status_code == 200
+        assert 'Secure;' not in response.headers['Set-Cookie']
+        assert client.get('/api/session', base_url='http://evil.example:40000').status_code == 400
+        assert client.post('/api/login', base_url='http://192.168.1.20:40000',
+            json={'email': 'test', 'password': 'test'}, headers={
+                'Origin': 'http://evil.example:40000', 'X-CSRF-Token': response.json['csrf']}).status_code == 403
+    monkeypatch.setattr(waitress, 'serve', serve)
+    main(['--url', 'https://cryo.example', '--host', '0.0.0.0',
+          '--public-url', 'http://192.168.1.20:40000', '--data-dir', str(tmp_path)])
+    assert 'unencrypted' in capsys.readouterr().out

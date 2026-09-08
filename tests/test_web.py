@@ -113,6 +113,31 @@ def test_https_does_not_trust_loopback_aliases(tmp_path):
     assert client.get('/api/session', base_url='https://localhost').status_code == 400
 
 
+def test_lan_http_login_can_allocate_request_ids_and_submit_without_browser_crypto(tmp_path):
+    import uuid
+    app = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+        'public_url': 'http://192.168.1.20:40000', 'host': '0.0.0.0'}, authenticate=authenticate)
+    client = app.test_client()
+    origin = 'http://192.168.1.20:40000'
+    assert client.get('/api/request-id', base_url=origin).status_code == 401
+    csrf = client.get('/api/session', base_url=origin).json['csrf']
+    result = client.post('/api/login', base_url=origin,
+        json={'email': 'alice', 'password': 'correct'},
+        headers={'Origin': origin, 'X-CSRF-Token': csrf})
+    assert result.status_code == 200
+    ids = [client.get('/api/request-id', base_url=origin).json['request_id'] for _ in range(2)]
+    assert ids[0] != ids[1]
+    assert all(uuid.UUID(value).version == 4 for value in ids)
+    headers = {'Origin': origin, 'X-CSRF-Token': result.json['csrf']}
+    response = client.post('/api/jobs', base_url=origin,
+        json=dict(submission(), request_id=ids[0]), headers=headers)
+    assert response.status_code == 201
+    assert client.post('/api/jobs', base_url=origin,
+        json=dict(submission(), request_id=ids[0]), headers=headers).json['id'] == response.json['id']
+    assert client.post('/api/logout', base_url=origin,
+        headers=dict(headers, Origin='http://192.168.1.20:40001')).status_code == 403
+
+
 def test_login_requires_csrf_rotates_session_and_never_returns_credentials(app):
     client = app.test_client()
     assert client.get('/api/jobs').status_code == 401

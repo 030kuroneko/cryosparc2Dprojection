@@ -47,7 +47,8 @@ server's loopback port 40000; for shared HTTPS deployment see below.
 
 Optional flags: `--port`, `--host`, `--public-url`, `--data-dir`, `--config`.
 Run `cryosparc2d --help` for details. Flags override optional JSON settings.
-`--host 0.0.0.0` alone is deliberately rejected: plain HTTP must stay on loopback.
+`--host 0.0.0.0` requires an explicit `--public-url`, so the service knows which
+hostname/IP and origin to accept.
 To use an existing HTTPS reverse proxy:
 
 ```bash
@@ -59,6 +60,34 @@ This does not provision DNS, TLS or a reverse proxy. For advanced existing
 deployments, [web-config.example.json](web-config.example.json) remains supported;
 replace example URLs and paths. Only the configured CryoSPARC server receives
 credentials; the browser cannot change this destination.
+
+### Direct lab-network HTTP (explicit opt-in)
+
+For a trusted lab network/VPN, bind all IPv4 interfaces and specify the actual
+address users will open. Replace the example IP with this web server's address:
+
+```bash
+cryosparc2d --url http://your-cryosparc-server:39000 \
+  --host 0.0.0.0 \
+  --public-url http://192.168.1.20:40000
+```
+
+Users open `http://192.168.1.20:40000`, **not** `http://0.0.0.0:40000`.
+Use `--port` and the matching public URL port if changing 40000. The same settings
+can be supplied through JSON `host` and `public_url`. The default without these
+options remains loopback-only; HTTPS deployments keep their existing policy.
+
+This mode sends passwords, session cookies and administrator keys over unencrypted
+HTTP. It is authorized only for trusted lab/VPN use, not Internet exposure.
+Restrict port 40000 with your existing firewall/network policy; the launcher does
+not open firewall rules. CSRF checks, exact public-host/origin validation,
+authentication and per-user job isolation remain enabled. Other aliases are not
+automatically trusted in LAN mode; use the configured address consistently.
+
+Request IDs are generated server-side so job submission does not require the
+browser's secure-context-only
+[`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID).
+Clipboard copying may be unavailable on HTTP; use Save settings instead.
 
 ### Optional Slurm setup — entirely in the browser
 
@@ -146,7 +175,8 @@ intended for trusted lab/VPN access, not unrestricted public Internet service.
 
 For a loopback-only development session, set `public_url` to
 `http://127.0.0.1:40000`, `host` to `127.0.0.1` and `allow_http` to `true`.
-HTTP mode refuses non-loopback origins or listening addresses.
+Loopback HTTP mode accepts the documented local aliases; direct LAN HTTP requires
+the explicit all-interface bind and actual public URL shown above.
 
 Example service unit after creating the dedicated account and private directories:
 

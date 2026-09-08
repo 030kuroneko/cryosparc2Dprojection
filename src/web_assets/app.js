@@ -278,23 +278,31 @@ $("workflow-form").addEventListener("submit", async (event) => {
   state.submitting = true;
   $("submit-job").disabled = true;
   $("form-error").textContent = "";
+  const generation = state.generation;
+  const payload = {
+    workflow: state.workflow,
+    values: { ...state.pages[state.workflow] },
+    profile: $("profile").value,
+  };
   try {
     if ($("profile").value === "slurm-setup")
       throw new Error(
         "Slurm must be configured by the administrator before submitting.",
       );
-    state.requestId ||= crypto.randomUUID();
+    const requestId = state.requestId || (await api("/api/request-id")).request_id;
+    if (generation !== state.generation) return;
+    state.requestId = requestId;
     const job = await api("/api/jobs", "POST", {
-      workflow: state.workflow,
-      values: state.pages[state.workflow],
-      profile: $("profile").value,
-      request_id: state.requestId,
+      ...payload,
+      request_id: requestId,
     });
+    if (generation !== state.generation) return;
     state.requestId = null;
     state.selected = job.id;
     $("form-status").textContent = "Queued · " + job.id.slice(0, 8);
     await refresh();
   } catch (error) {
+    if (generation !== state.generation) return;
     $("form-error").textContent = error.message;
     if (error.status === 400) state.requestId = null;
   } finally {
