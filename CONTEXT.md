@@ -139,3 +139,11 @@ _Avoid_: Exact-Axis Ranking, global orientation search
 **Result Rendering**:
 The stage that turns all completed axis-search candidates from one Axis Search Run into one result set containing native-grid Matched Projections, Camera View Renders, template stacks, previews, and machine-readable results. The result set is complete only when every candidate appears consistently in all required outputs; Result Rendering never completes a partial result set. It completes before those results are published to CryoSPARC; failure to attach a presentation preview does not change completed scientific results.
 _Avoid_: Axis Search Run, orientation search
+
+**Web Job**:
+A web-launcher request to execute Class Orientation or an Axis Search Run, whose execution outcome is distinct from the cleanup of its job-scoped CryoSPARC credentials. A successful execution remains successful when credential cleanup is pending, and pending cleanup does not prevent the next Web Job from starting.
+_Avoid_: CryoSPARC External Job, Axis Search Run, credential cleanup
+
+**Web Job Credential Cleanup**:
+The removal of the CryoSPARC credentials retained for one Web Job. Pending cleanup is a visible, retryable condition that survives launcher restarts without repeating the scientific workflow or changing its execution outcome.
+_Avoid_: Workflow failure, computation retry, CryoSPARC account deletion

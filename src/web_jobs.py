@@ -1,18 +1,28 @@
 """Durable job records and private per-job credentials for the web launcher."""
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import threading
+from time import time
 import uuid
-
-from cryosparc_2d_projection.workflow_config import WORKFLOWS, build_arguments, default_values
 
 TERMINAL = ('completed', 'failed', 'interrupted')
 VALIDATION_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class ExecutionObservation:
+    """Execution evidence supplied by the Local or Slurm adapter."""
+    scheduler_state: str | None = None
+    detail: str = ''
+    process_exit_code: int | None = None
+    process_alive: bool = False
 
 
 def private_json(path, value):
@@ -20,9 +30,27 @@ def private_json(path, value):
         json.dump(value, out)
 
 
+def _remove_credentials(directory):
+    try:
+        (directory / 'config' / 'cryosparc-tools' / 'auth.json').unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def record_worker_completion(directory, exit_code, detail):
+    """Persist execution evidence even when job-scoped credential cleanup fails."""
+    directory = Path(directory)
+    _remove_credentials(directory)
+    temporary = directory / 'result.tmp'
+    temporary.write_text(json.dumps({'exit_code': exit_code, 'detail': detail}), encoding='utf-8')
+    temporary.replace(directory / 'result.json')
+
+
 class JobStore:
-    def __init__(self, config):
+    def __init__(self, config, *, clock=time):
         self.config = config
+        self.clock = clock
         self.state_root = Path(config['data_dir']).resolve()
         self.root = Path(config.get('work_dir', config['data_dir'])).resolve()
         for directory in (self.state_root, self.root):
@@ -45,6 +73,12 @@ class JobStore:
             for name in ('directory', 'execution_json'):
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} TEXT')
+            if 'cleanup_pending' not in columns:
+                db.execute('ALTER TABLE jobs ADD COLUMN cleanup_pending INTEGER NOT NULL DEFAULT 0')
+                db.execute('UPDATE jobs SET cleanup_pending=1 WHERE state IN (?,?,?)', TERMINAL)
+            for name in ('cleanup_attempts', 'cleanup_after'):
+                if name not in columns:
+                    db.execute(f'ALTER TABLE jobs ADD COLUMN {name} NUMERIC NOT NULL DEFAULT 0')
         self.database.chmod(0o600)
 
     @property
@@ -79,6 +113,7 @@ class JobStore:
         if row is None:
             return None
         return {**{k: row[k] for k in ('id', 'workflow', 'profile', 'state', 'created', 'scheduler_id', 'detail')},
+                'cleanup_pending': bool(row['cleanup_pending']),
                 'values': json.loads(row['values_json'])}
 
     def list(self, owner):
@@ -92,6 +127,7 @@ class JobStore:
                                           (job_id, owner)).fetchone())
 
     def submit(self, identity, body):
+        from cryosparc_2d_projection.workflow_config import WORKFLOWS, build_arguments, default_values
         if not isinstance(body, dict) or set(body) != {'workflow', 'values', 'profile', 'request_id'}:
             raise ValueError('Expected workflow, values, profile and request_id')
         workflow, values, profile = body['workflow'], body['values'], body['profile']
@@ -126,7 +162,7 @@ class JobStore:
                 if prior['workflow'] != workflow or prior['profile'] != profile or json.loads(prior['values_json']) != validated:
                     raise ValueError('Request ID already used with different settings')
                 return self.public(prior)
-            active = db.execute("SELECT owner FROM jobs WHERE state NOT IN ('completed','failed','interrupted')").fetchall()
+            active = db.execute('SELECT owner FROM jobs WHERE state NOT IN (?,?,?)', TERMINAL).fetchall()
             if len(active) >= 32 or sum(r['owner'] == identity['owner'] for r in active) >= 8:
                 raise ValueError('Queue limit reached. Wait for a job to finish.')
             job_id = uuid.uuid4().hex
@@ -148,12 +184,96 @@ class JobStore:
                         str(directory), json.dumps(execution)))
         return self.get(identity['owner'], job_id)
 
+    def active_jobs(self):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT id,scheduler_id FROM jobs WHERE state NOT IN (?,?,?,?) ORDER BY created',
+                ('queued', *TERMINAL))]
+
+    def claim_next(self):
+        """Durably claim one queued job only when no execution is outstanding."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM jobs WHERE state NOT IN (?,?,?,?) LIMIT 1',
+                          ('queued', *TERMINAL)).fetchone():
+                return None
+            row = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            if row is None:
+                return None
+            db.execute("UPDATE jobs SET state='submitting' WHERE id=?", (row['id'],))
+        profile = json.loads(row['execution_json']) if row['execution_json'] else self.profiles.get(row['profile'])
+        if profile is None:
+            self.update(row['id'], 'failed', 'Execution profile was removed. Submit again with a current profile.')
+            return None
+        return {'id': row['id'], 'directory': self.directory(row['id']), 'profile': profile}
+
+    def _complete_from_worker(self, job_id):
+        marker = self.directory(job_id) / 'result.json'
+        try:
+            result = json.loads(marker.read_text())
+        except FileNotFoundError:
+            return False
+        else:
+            self.update(job_id, 'completed' if result['exit_code'] == 0 else 'failed',
+                        result.get('detail', ''))
+            return True
+
+    def reconcile(self, job_id, observe):
+        """Resolve execution evidence; the completion record takes precedence."""
+        if self._complete_from_worker(job_id):
+            return True
+        try:
+            observation = observe()
+        except (OSError, subprocess.SubprocessError):
+            if self._complete_from_worker(job_id):
+                return True
+            self.update(job_id, 'unknown', 'Slurm status unavailable; will retry without resubmitting.')
+            return False
+        # Scheduler/process inspection can take time; completion may arrive during it.
+        if self._complete_from_worker(job_id):
+            return True
+        if observation.scheduler_state is not None:
+            state, detail = observation.scheduler_state, observation.detail
+            if state == 'completed':
+                state, detail = 'failed', 'Slurm ended without a workflow completion record. Check bootstrap.log.'
+            self.update(job_id, state, detail)
+            return state in TERMINAL
+        if observation.process_exit_code is not None:
+            self.update(job_id, 'failed', f'Worker exited ({observation.process_exit_code}) without a completion record. Check bootstrap.log.')
+            return True
+        if not observation.process_alive:
+            self.update(job_id, 'unknown', 'Service restarted during execution/submission. Waiting for completion; administrator may need to reconcile.')
+        return False
+
     def update(self, job_id, state, detail='', scheduler_id=None):
         with self.connect() as db:
-            db.execute('UPDATE jobs SET state=?,detail=?,scheduler_id=COALESCE(?,scheduler_id) WHERE id=?',
-                       (state, detail, scheduler_id, job_id))
+            changed = db.execute('UPDATE jobs SET state=?,detail=?,scheduler_id=COALESCE(?,scheduler_id) '
+                                 'WHERE id=? AND state NOT IN (?,?,?)',
+                                 (state, detail, scheduler_id, job_id, *TERMINAL)).rowcount
+            if not changed:
+                return
+            if state in TERMINAL:
+                db.execute('UPDATE jobs SET cleanup_pending=1 WHERE id=?', (job_id,))
         if state in TERMINAL:
-            (self.directory(job_id) / 'config' / 'cryosparc-tools' / 'auth.json').unlink(missing_ok=True)
+            self._cleanup(job_id)
+
+    def _cleanup(self, job_id):
+        if not _remove_credentials(self.directory(job_id)):
+            with self.connect() as db:
+                attempts = db.execute('SELECT cleanup_attempts FROM jobs WHERE id=?', (job_id,)).fetchone()[0]
+                delay = min(300, 5 * 2 ** min(attempts, 6))
+                db.execute('UPDATE jobs SET cleanup_attempts=cleanup_attempts+1,cleanup_after=? WHERE id=?',
+                           (self.clock() + delay, job_id))
+            return
+        with self.connect() as db:
+            db.execute('UPDATE jobs SET cleanup_pending=0 WHERE id=?', (job_id,))
+
+    def retry_cleanup(self):
+        with self.connect() as db:
+            jobs = db.execute('SELECT id FROM jobs WHERE cleanup_pending=1 AND cleanup_after<=?',
+                              (self.clock(),)).fetchall()
+        for job in jobs:
+            self._cleanup(job['id'])
 
     def log(self, owner, job_id):
         if not self.get(owner, job_id):

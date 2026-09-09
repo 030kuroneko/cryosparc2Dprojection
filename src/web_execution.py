@@ -1,5 +1,4 @@
 """Single dispatcher, isolated processes, and explicit Slurm state reconciliation."""
-import json
 import os
 from pathlib import Path
 import re
@@ -7,6 +6,9 @@ import shlex
 import subprocess
 import sys
 import threading
+
+from cryosparc_2d_projection.web_jobs import ExecutionObservation
+
 
 def worker_command(profile, directory):
     return [profile.get('python', sys.executable), '-u', '-m',
@@ -141,24 +143,16 @@ class Dispatcher:
             self.stop_event.wait(5)
 
     def tick(self):
-        with self.store.connect() as db:
-            rows = db.execute("SELECT * FROM jobs WHERE state NOT IN ('queued','completed','failed','interrupted') ORDER BY created").fetchall()
-        for row in rows:
-            self._refresh(row)
-        with self.store.connect() as db:
-            count = db.execute("SELECT count(*) FROM jobs WHERE state NOT IN ('queued','completed','failed','interrupted')").fetchone()[0]
-            if count:
-                return
-            row = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
-        if not row:
+        self.store.retry_cleanup()
+        for job in self.store.active_jobs():
+            if self.store.reconcile(job['id'], lambda: self._observe(job)):
+                process = self.processes.pop(job['id'], None)
+                if process:
+                    process.wait(timeout=10)
+        job = self.store.claim_next()
+        if job is None:
             return
-        job_id = row['id']
-        profile = json.loads(row['execution_json']) if row['execution_json'] else self.store.profiles.get(row['profile'])
-        if profile is None:
-            self.store.update(job_id, 'failed', 'Execution profile was removed. Submit again with a current profile.')
-            return
-        directory = self.store.directory(job_id)
-        self.store.update(job_id, 'submitting')
+        job_id, directory, profile = job['id'], job['directory'], job['profile']
         try:
             if profile['backend'] == 'slurm':
                 scheduler_id = SlurmBackend(profile).submit(directory)
@@ -176,32 +170,12 @@ class Dispatcher:
         except Exception:
             self.store.update(job_id, 'unknown', 'Submission outcome uncertain. Administrator reconciliation required; not resubmitting.')
 
-    def _refresh(self, row):
-        job_id = row['id']
-        directory = self.store.directory(job_id)
-        marker = directory / 'result.json'
-        # A marker proves workflow completion even if the web service was restarted.
-        if marker.exists():
-            result = json.loads(marker.read_text())
-            state = 'completed' if result['exit_code'] == 0 else 'failed'
-            self.store.update(job_id, state, result.get('detail', ''))
-            process = self.processes.pop(job_id, None)
-            if process:
-                process.wait(timeout=10)
-            return
-        if row['scheduler_id']:
-            try:
-                state, detail = SlurmBackend({}).status(row['scheduler_id'])
-                if state == 'completed':
-                    # Scheduler success is insufficient without our worker completion marker.
-                    state, detail = 'failed', 'Slurm ended without a workflow completion record. Check bootstrap.log.'
-                self.store.update(job_id, state, detail)
-            except (OSError, subprocess.SubprocessError):
-                self.store.update(job_id, 'unknown', 'Slurm status unavailable; will retry without resubmitting.')
-        elif job_id in self.processes:
-            code = self.processes[job_id].poll()
-            if code is not None:
-                del self.processes[job_id]
-                self.store.update(job_id, 'failed', f'Worker exited ({code}) without a completion record. Check bootstrap.log.')
-        else:
-            self.store.update(job_id, 'unknown', 'Service restarted during execution/submission. Waiting for completion; administrator may need to reconcile.')
+    def _observe(self, job):
+        if job['scheduler_id']:
+            state, detail = SlurmBackend({}).status(job['scheduler_id'])
+            return ExecutionObservation(scheduler_state=state, detail=detail)
+        process = self.processes.get(job['id'])
+        if process is not None:
+            code = process.poll()
+            return ExecutionObservation(process_exit_code=code, process_alive=code is None)
+        return ExecutionObservation()
