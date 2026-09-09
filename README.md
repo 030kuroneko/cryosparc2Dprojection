@@ -148,6 +148,19 @@ The Tk/ttk desktop launcher and `cryosparc2d-gui` command have been retired.
 Use the web launcher or the workflow CLI commands instead; reinstall the package
 to refresh installed command entry points.
 
+Both workflows show English progress in the web task page and CryoSPARC Job
+Log: current operation, completed/total work when known, elapsed time, and an
+approximate **stage** time remaining. Estimates need at least two completed
+units and exclude queue waiting. Unmeasured operations show `Estimating…`;
+elapsed time continues updating without inventing completed work. Completion
+is reported after required result publication finishes.
+
+The web page keeps technical diagnostics under **Technical details**. In
+CryoSPARC, the progress summary updates in place and diagnostic messages are
+retained in the job's `job-details.log` file. Warnings and errors remain visible.
+There is no historical whole-task ETA model; stage estimates do not include
+later rendering or upload work.
+
 Shared argument validation tests are in `tests/test_workflow_config.py`;
 web launch and execution tests run without a desktop display. Real-server
 verification still requires a configured CryoSPARC instance and representative
@@ -244,7 +257,7 @@ native grid of the selected Rendering Map. An explicit value of at least 2
 reduces the grid proportionally without upsampling or distorting non-cubic
 maps; it has no fixed software maximum. The terminal, Job Log, and JSON record
 the original and effective shapes, downsampling state, and a lower-bound memory
-estimate before extraction. The estimate covers known dense volume/mask/label
+estimate in the technical details before extraction. The estimate covers known dense volume/mask/label
 arrays but excludes topology-dependent marching-cubes mesh and plotting
 allocations. Estimates above 1 GiB warn but continue. A memory failure never
 silently lowers quality and reports an explicit smaller retry value.

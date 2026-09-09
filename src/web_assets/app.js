@@ -58,6 +58,11 @@ function showLogin() {
   });
   $("job-list").replaceChildren();
   $("job-log").textContent = "";
+  state.progress = null;
+  $("progress-panel").hidden = true;
+  $("job-progress").textContent = "";
+  $("job-details").textContent = "";
+  $("technical-details").open = false;
 }
 async function bootstrap() {
   try {
@@ -302,6 +307,8 @@ $("workflow-form").addEventListener("submit", async (event) => {
     if (generation !== state.generation) return;
     state.requestId = null;
     state.selected = job.id;
+    state.progress = null;
+    $("technical-details").open = false;
     $("form-status").textContent = "Queued · " + job.id.slice(0, 8);
     await refresh();
   } catch (error) {
@@ -330,6 +337,10 @@ $("job-list").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-job]");
   if (!button) return;
   state.selected = button.dataset.job;
+  state.progress = null;
+  $("technical-details").open = false;
+  $("job-details").textContent = "";
+  renderProgress();
   $("log-panel").open = true;
   renderJobs();
   await loadLog();
@@ -342,7 +353,10 @@ async function loadLog() {
     const data = await api("/api/jobs/" + id + "/log");
     if (state.selected !== id || generation !== state.generation) return;
     $("log-job").textContent = id.slice(0, 8);
-    $("job-log").textContent = data.log || "Waiting for the worker to start…";
+    $("job-log").textContent = data.log || "No activity messages yet.";
+    $("job-details").textContent = data.details || "No technical details yet.";
+    state.progress = data.progress;
+    renderProgress();
     const job = state.jobs.find((j) => j.id === id);
     if (job && ["failed", "unknown"].includes(job.state))
       $("log-panel").open = true;
@@ -352,6 +366,20 @@ async function loadLog() {
   }
 }
 let refreshing = false;
+function renderProgress() {
+  if (!state.selected) return;
+  const job = state.jobs.find((j) => j.id === state.selected);
+  const view = window.JobProgressView.describe(state.progress, job?.state);
+  $("progress-panel").hidden = false;
+  $("job-progress").textContent = view.text;
+  const bar = $("job-progress-bar");
+  bar.hidden = view.value === null;
+  if (!bar.hidden) {
+    bar.max = view.max;
+    bar.value = view.value;
+  }
+}
+setInterval(renderProgress, 1000);
 async function refresh() {
   if (!state.schema || refreshing) return;
   const generation = state.generation;

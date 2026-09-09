@@ -85,7 +85,7 @@ class InMemoryExternalJobBackend:
     def dir(self):
         return str(self.directory)
 
-    def log(self, message):
+    def log(self, message, **kwargs):
         if self.log_error is not None:
             raise self.log_error
         self.logs.append(message)

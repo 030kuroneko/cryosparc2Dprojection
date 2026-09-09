@@ -103,10 +103,12 @@ def run_axis_search_job(
     for name in output_names:
         adapter.add_template_output(name, title=name.replace("_", " ").title())
 
-    with adapter.run():
+    with adapter.progress(status_callback, clock=progress_clock,
+                          heartbeat_seconds=heartbeat_seconds) as progress, adapter.run():
+        progress.start("Reading input data")
         run_started_at = monotonic()
         timings = {}
-        adapter.set_status(
+        adapter.log_detail(
             "Axis Search stage: stage=input-loading status=started",
             status_callback,
         )
@@ -132,19 +134,23 @@ def run_axis_search_job(
         timings["input-loading"] = {
             "elapsed_seconds": monotonic() - stage_started_at
         }
-        adapter.set_status(
+        adapter.log_detail(
             "Axis Search stage: stage=input-loading status=completed "
             f"elapsed={timings['input-loading']['elapsed_seconds']:.3f}s",
             status_callback,
         )
-        adapter.set_status(
+        adapter.log_detail(
             "Axis Search stage: stage=exact-ranking status=started "
             f"classes={len(classes)} search_max_size={config.search_max_size}",
             status_callback,
         )
         stage_started_at = monotonic()
+        progress.start("Comparing symmetry axes",
+                       total=len(classes) * len(set(families) if families is not None else registry.records()),
+                       unit="class–axis comparisons")
         progress_reporter = _AxisProgressReporter(
             adapter,
+            progress=progress,
             status_callback=status_callback,
             warning_callback=warning_callback,
             clock=progress_clock,
@@ -163,7 +169,8 @@ def run_axis_search_job(
                 progress_callback=progress_reporter,
             )
         except Exception as error:
-            adapter.set_status(
+            adapter.set_warning(f"ERROR: {error}", warning_callback)
+            adapter.log_detail(
                 "Axis Search stage: stage=exact-ranking status=failed "
                 f"{progress_reporter.context()} "
                 f"elapsed={monotonic() - stage_started_at:.3f}s "
@@ -174,14 +181,15 @@ def run_axis_search_job(
         timings["exact-ranking"] = {
             "elapsed_seconds": monotonic() - stage_started_at
         }
-        adapter.set_status(
+        adapter.log_detail(
             "Axis Search stage: stage=exact-ranking status=completed "
             f"elapsed={timings['exact-ranking']['elapsed_seconds']:.3f}s",
             status_callback,
         )
         refinement = None
         if refine_near_axis:
-            adapter.set_status(
+            progress.start("Refining near-axis matches", total=len(search_result.rows), unit="candidates")
+            adapter.log_detail(
                 "Axis Search stage: stage=near-axis-refinement status=started",
                 status_callback,
             )
@@ -196,7 +204,8 @@ def run_axis_search_job(
                     progress_callback=progress_reporter,
                 )
             except Exception as error:
-                adapter.set_status(
+                adapter.set_warning(f"ERROR: {error}", warning_callback)
+                adapter.log_detail(
                     "Axis Search stage: stage=near-axis-refinement status=failed "
                     f"{progress_reporter.context()} "
                     f"elapsed={monotonic() - stage_started_at:.3f}s "
@@ -207,33 +216,40 @@ def run_axis_search_job(
             timings["near-axis-refinement"] = {
                 "elapsed_seconds": monotonic() - stage_started_at
             }
-            adapter.set_status(
+            adapter.log_detail(
                 "Axis Search stage: stage=near-axis-refinement status=completed "
                 f"elapsed={timings['near-axis-refinement']['elapsed_seconds']:.3f}s",
                 status_callback,
             )
+        rendered_candidates = set()
+
         def report_rendering_event(event):
             if event.code is AxisResultRenderingEventCode.RESULT_RENDERING_STARTED:
-                adapter.set_status(
+                progress.start("Generating result images", total=len(search_result.rows), unit="results")
+                adapter.log_detail(
                     "Axis Search stage: stage=result-rendering status=started",
                     status_callback,
                 )
             elif event.code is AxisResultRenderingEventCode.SURFACE_SAMPLING:
-                adapter.set_status(event.message, status_callback)
+                progress.advance(len(rendered_candidates), detail="Building rendering surface")
+                adapter.log_detail(event.message, status_callback)
             elif event.code is AxisResultRenderingEventCode.CANDIDATE_COMPLETED:
-                adapter.set_status(
+                rendered_candidates.add((event.family_name, event.class_number))
+                progress.advance(len(rendered_candidates))
+                adapter.log_detail(
                     "Result Rendering progress: "
                     f"family={event.family_name} class={event.class_number} "
                     "status=completed",
                     status_callback,
                 )
             elif event.code is AxisResultRenderingEventCode.OUTPUT_WRITING_STARTED:
-                adapter.set_status(
+                progress.start("Writing result files")
+                adapter.log_detail(
                     "Axis Search stage: stage=output-writing status=started",
                     status_callback,
                 )
             elif event.code is AxisResultRenderingEventCode.OUTPUT_WRITING_COMPLETED:
-                adapter.set_status(
+                adapter.log_detail(
                     "Axis Search stage: stage=output-writing status=completed",
                     status_callback,
                 )
@@ -266,7 +282,8 @@ def run_axis_search_job(
                 )
             )
         except Exception as error:
-            adapter.set_status(
+            adapter.set_warning(f"ERROR: {error}", warning_callback)
+            adapter.log_detail(
                 "Axis Search stage: stage=result-rendering status=failed "
                 f"elapsed={monotonic() - rendering_started_at:.3f}s "
                 f"error={type(error).__name__}: {error}",
@@ -274,11 +291,12 @@ def run_axis_search_job(
             )
             raise
         artifact = result.artifact
-        adapter.set_status(
+        adapter.log_detail(
             "Axis Search stage: stage=result-rendering status=completed "
             f"elapsed={artifact['timings']['result-rendering']['elapsed_seconds']:.3f}s",
             status_callback,
         )
+        progress.start("Preparing result uploads")
         for name, stack in result.stacks.items():
             adapter.stage_template_stack(
                 name,
@@ -286,6 +304,7 @@ def run_axis_search_job(
                 stack.data,
                 pixel_size_A=stack.pixel_size_A,
             )
+        progress.start("Uploading results")
         adapter.publish()
         for page_number, page in enumerate(result.preview_pages, start=1):
             adapter.log_plot(
@@ -310,7 +329,7 @@ def run_axis_search_job(
                 if row["angular_distance_degrees"] is None
                 else f"{row['angular_distance_degrees']:.3f}"
             )
-            adapter.set_status(
+            adapter.log_detail(
                 "Axis Search row: "
                 f"family={row['family']} rank={row['rank']} "
                 f"class={row['class_number']} "
@@ -320,11 +339,17 @@ def run_axis_search_job(
                 f"duplicate={row['duplicate']} warnings={row['warnings']}",
                 status_callback,
             )
-            adapter.safe_log(
+            if row["warnings"]:
+                adapter.set_warning(
+                    f"WARNING: Class {row['class_number']} ({row['family']}): {row['warnings']}",
+                    warning_callback,
+                )
+            adapter.log_detail(
                 "Axis Search row JSON: "
                 + json.dumps(row, sort_keys=True, separators=(",", ":")),
+                status_callback,
             )
-        adapter.set_status(
+        adapter.log_detail(
             f"Ranked {len(classes)} classes across "
             f"{len(search_result.families)} Axis Families.",
             status_callback,
@@ -337,6 +362,7 @@ class _AxisProgressReporter:
         self,
         adapter,
         *,
+        progress,
         status_callback=None,
         warning_callback=None,
         clock=monotonic,
@@ -344,6 +370,8 @@ class _AxisProgressReporter:
         stalled_seconds=300.0,
     ):
         self.adapter = adapter
+        self.progress = progress
+        self.completed = {}
         self.status_callback = status_callback
         self.warning_callback = warning_callback
         self.clock = clock
@@ -356,17 +384,12 @@ class _AxisProgressReporter:
     def __call__(self, event):
         self._last_event = event
         now = self.clock()
-        if (
-            self._last_event_at is not None
-            and now - self._last_event_at >= self.stalled_seconds
-        ):
-            self.adapter.set_warning(
-                "Axis Search warning: progress resumed after "
-                f"{now - self._last_event_at:.1f}s without a progress event; "
-                f"stage={event.stage} family={event.family_name} "
-                f"class={event.class_number} pass={event.pass_name}",
-                self.warning_callback,
-            )
+        completed = self.completed.setdefault(event.stage, set())
+        if event.pass_name == "class-completed":
+            completed.add((event.family_name, event.class_number))
+        self.progress.advance(len(completed), detail=(
+            f"Class {event.class_number} · {event.family_name} axes"
+        ))
         self._last_event_at = now
         key = (event.stage, event.family_name, event.class_number, event.pass_name)
         last_log_at = self._last_log_at.get(key)
@@ -377,7 +400,7 @@ class _AxisProgressReporter:
         ):
             return
         eta = "unknown" if event.eta_seconds is None else f"{event.eta_seconds:.1f}s"
-        self.adapter.set_status(
+        self.adapter.log_detail(
             "Axis Search progress: "
             f"stage={event.stage} family={event.family_name} "
             f"class={event.class_number} pass={event.pass_name} "

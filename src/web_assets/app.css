@@ -384,6 +384,20 @@ input:disabled {
 #advanced-fields {
   margin-top: 28px;
 }
+.progress-panel {
+  padding: 16px;
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.progress-panel p {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  margin: 0 0 8px;
+}
+.progress-panel progress { width: 100%; }
+
 details {
   border-top: 1px solid #2a4053;
   padding: 17px 0;

@@ -4,24 +4,35 @@ import json
 import os
 from pathlib import Path
 import sys
+from threading import RLock, get_ident
 
 
 class JobLog:
     """Bounded line buffering prevents token fragments from leaking between writes."""
     def __init__(self, source, tokens):
         self.source, self.tokens = source, tokens
-        self.pending = ''
+        self._pending = {}
+        self.lock = RLock()
         self.written = 0
 
+    @property
+    def pending(self):
+        return self._pending.get(get_ident(), '')
+
+    @pending.setter
+    def pending(self, value):
+        self._pending[get_ident()] = value
+
     def write(self, text):
-        self.pending += text
-        while '\n' in self.pending:
-            line, self.pending = self.pending.split('\n', 1)
-            self._emit(line + '\n')
-        if len(self.pending) > 65536:
-            # Do not split an untrusted arbitrarily long line across redaction boundaries.
-            self.pending = ''
-            self._emit('[Oversized log line omitted]\n')
+        with self.lock:
+            self.pending += text
+            while '\n' in self.pending:
+                line, self.pending = self.pending.split('\n', 1)
+                self._emit(line + '\n')
+            if len(self.pending) > 65536:
+                # Keep each thread's redaction boundary intact during heartbeats.
+                self.pending = ''
+                self._emit('[Oversized log line omitted]\n')
         return len(text)
 
     def _emit(self, text):
@@ -33,11 +44,14 @@ class JobLog:
             self.source.flush()
 
     def flush(self):
-        self.source.flush()
+        with self.lock:
+            self.source.flush()
 
     def finish(self):
-        self._emit(self.pending)
-        self.pending = ''
+        with self.lock:
+            for pending in self._pending.values():
+                self._emit(pending)
+            self._pending.clear()
 
 
 def main(argv=None):
@@ -48,6 +62,7 @@ def main(argv=None):
         if key.startswith('CRYOSPARC_'):
             del os.environ[key]
     os.environ.update(XDG_CONFIG_HOME=str(directory / 'config'), MPLBACKEND='Agg')
+    os.environ['CRYOSPARC2D_PROGRESS_PATH'] = str(directory / 'progress.json')
     if 'SLURM_CPUS_PER_TASK' in os.environ:
         for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
             os.environ[key] = os.environ['SLURM_CPUS_PER_TASK']

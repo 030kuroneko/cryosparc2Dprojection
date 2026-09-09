@@ -7,6 +7,7 @@
     <script src="/assets/theme.js"></script>
     <link rel="stylesheet" href="/assets/app.css" />
     <script src="/assets/help.js" defer></script>
+    <script src="/assets/progress.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
@@ -237,11 +238,19 @@
           <div id="job-list" class="job-list">
             <p class="empty">Your first run starts here.</p>
           </div>
-          <details id="log-panel">
+          <section id="progress-panel" class="progress-panel" hidden aria-label="Job progress">
+            <p id="job-progress" role="status"></p>
+            <progress id="job-progress-bar" aria-label="Current stage progress" hidden></progress>
+          </section>
+          <details id="log-panel" open>
             <summary>Activity log <span id="log-job"></span></summary>
             <pre id="job-log" tabindex="0">
 Select a run to inspect its activity.</pre
             >
+            <details id="technical-details">
+              <summary>Technical details</summary>
+              <pre id="job-details" tabindex="0">No technical details yet.</pre>
+            </details>
           </details>
         </section>
         <footer class="page-footer">

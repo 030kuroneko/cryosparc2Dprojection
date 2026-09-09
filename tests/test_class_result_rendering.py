@@ -391,3 +391,16 @@ def test_class_result_rendering_reports_sampling_before_surface_extraction(
     request = replace(_one_class_request(tmp_path), progress_callback=events.append)
 
     render_class_results(request)
+
+
+def test_surface_fallback_is_a_visible_warning_not_a_progress_detail(tmp_path):
+    volume = np.zeros((12, 12, 12), dtype=np.float32)
+    volume[:6] = 1.0
+    warnings = []
+    request = _one_class_request(tmp_path)
+    render_class_results(replace(
+        request, rendering_map=volume,
+        render_options=ClassRenderOptions(image_size=64),
+        warning_callback=warnings.append,
+    ))
+    assert any('Automatic Surface Level was lowered' in event.message for event in warnings)

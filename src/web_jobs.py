@@ -162,5 +162,32 @@ class JobStore:
         if not path.exists():
             return ''
         with path.open('rb') as source:
-            source.seek(max(0, path.stat().st_size - 65536))
-            return source.read(65536).decode('utf-8', errors='replace')
+            source.seek(0, os.SEEK_END)
+            offset = max(0, source.tell() - 65536)
+            source.seek(max(0, offset - 1))
+            previous = source.read(1) if offset else b'\n'
+            content = source.read(65536)
+            if previous != b'\n':
+                # A partial diagnostic line has lost its [Details] prefix.
+                # Discard it before the HTTP layer classifies complete lines.
+                content = content.partition(b'\n')[2]
+            return content.decode('utf-8', errors='replace')
+
+    def progress(self, owner, job_id):
+        job = self.get(owner, job_id)
+        if not job:
+            return None
+        try:
+            path = self.directory(job_id) / 'progress.json'
+            if path.stat().st_size > 16384:
+                return None
+            value = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(value, dict):
+                return None
+        except (OSError, ValueError):
+            return None
+        if job['state'] in (*TERMINAL, 'unknown'):
+            value['state'] = job['state']
+            value['remaining_seconds'] = None
+            value['remaining_scope'] = None
+        return value

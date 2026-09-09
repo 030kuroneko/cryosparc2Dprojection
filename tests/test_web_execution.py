@@ -101,3 +101,18 @@ def test_log_redacts_token_split_across_writes_and_bounds_output():
     assert out.getvalue() == 'Token: [REDACTED]\n'
     log.write('x' * 100000)
     assert len(log.pending) < 65536
+
+
+def test_heartbeat_does_not_split_another_threads_redaction_boundary():
+    import io
+    from threading import Thread
+    from cryosparc_2d_projection.web_worker import JobLog
+    out = io.StringIO()
+    log = JobLog(out, ['private-token'])
+    log.write('Token: private-')
+    heartbeat = Thread(target=lambda: log.write('Still reading input data\n'))
+    heartbeat.start()
+    heartbeat.join()
+    log.write('token\n')
+    log.finish()
+    assert out.getvalue() == 'Still reading input data\nToken: [REDACTED]\n'

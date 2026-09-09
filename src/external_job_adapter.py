@@ -321,6 +321,40 @@ class CryoSPARCExternalJobAdapter:
     def set_warning(self, message, callback=None):
         self.set_status(message, callback)
 
+    def progress(self, callback=None, **options):
+        from cryosparc_2d_projection.job_progress import JobProgress
+
+        notice_sent = False
+
+        def emit(message):
+            nonlocal notice_sent
+            if not notice_sent:
+                self.safe_log('Technical details are available in job-details.log in the job files.')
+                notice_sent = True
+            try:
+                # The supported SDK updates a named event instead of appending
+                # one heartbeat after another to the CryoSPARC Event Log.
+                self.job.log(message, name='workflow-progress')
+            except Exception:
+                pass
+            if callback is not None:
+                callback(message)
+
+        return JobProgress(emit, path=self.path('job-progress.json'), **options)
+
+    def log_detail(self, message, callback=None):
+        """Retain diagnostics in job files and the web's collapsed details."""
+        try:
+            with self.path('job-details.log').open('a', encoding='utf-8') as output:
+                output.write(message + '\n')
+        except OSError:
+            pass
+        if callback is not None:
+            try:
+                callback('[Details] ' + message.replace('\n', '\n[Details] '))
+            except Exception:
+                pass
+
     def stage_template_stack(self, name, filename, stack, *, pixel_size_A):
         filename = Path(filename)
         output_path = self.path(filename)

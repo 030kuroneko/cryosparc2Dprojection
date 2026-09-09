@@ -90,14 +90,17 @@ def run_external_orientation_job(
             title=f"Class {class_number} interactive volume",
         )
 
-    with adapter.run():
+    with adapter.progress(status_callback) as progress, adapter.run():
+        progress.start("Reading input data")
         select_particles = adapter.read_2d_particle_alignments("select_2d_particles")
         refinement_particles = adapter.read_3d_particle_alignments(
             "refinement_particles"
         )
+        progress.start("Analyzing particle orientations")
         orientations = analyze_class_orientations(
             select_particles, refinement_particles, symmetry=symmetry
         )
+        progress.start("Reading class averages and maps")
         class_averages = adapter.read_template_stack(
             "select_2d_templates"
         ).class_averages
@@ -115,7 +118,9 @@ def run_external_orientation_job(
 
         camera_results = {}
         result_inputs = []
-        for class_id in sorted(orientations):
+        progress.start("Finding class orientations", total=len(orientations), unit="classes")
+        for completed, class_id in enumerate(sorted(orientations)):
+            progress.advance(completed, detail=f"Processing Class {class_id + 1}")
             refinement_poses, alignment_2d_poses = _matched_particle_poses(
                 select_particles, refinement_particles, class_id
             )
@@ -146,10 +151,25 @@ def run_external_orientation_job(
                 )
             )
 
+            progress.advance(completed + 1)
+
+        rendered_classes = set()
+        progress.start("Generating class results", total=len(orientations), unit="classes")
+
         def report_progress(event):
-            adapter.log(event.message)
-            if event.stage == "surface-sampling" and status_callback is not None:
-                status_callback(event.message)
+            if event.stage == "class-completed":
+                rendered_classes.add(event.class_number)
+                progress.advance(len(rendered_classes))
+            elif event.stage == "surface-sampling":
+                progress.start("Building rendering surface")
+                adapter.log_detail(event.message, status_callback)
+            elif event.stage == "surface-rendering":
+                progress.start("Generating class results", total=len(orientations), unit="classes")
+                adapter.log_detail(event.message, status_callback)
+            elif event.stage == "preview-writing":
+                progress.start("Writing result previews")
+            else:
+                adapter.log_detail(event.message, status_callback)
 
         def report_warning(event):
             adapter.log(event.message)
@@ -187,6 +207,7 @@ def run_external_orientation_job(
                 pixel_size_A=stack.pixel_size_A,
             )
 
+        progress.start("Preparing result files and interactive volumes")
         write_chimerax_bundle(
             adapter.resource_directory / "chimerax",
             map_path=str(volume_input.rendering_path),
@@ -209,12 +230,14 @@ def run_external_orientation_job(
                 rotated_volume,
                 pixel_size_A=volume_input.rendering_pixel_size_A,
             )
+        progress.start("Uploading results")
         adapter.publish()
 
         first_class_id = min(camera_results)
         adapter.attach_output_preview(
             "matched_projections",
             result_set.thumbnail_path,
+            warning_callback=warning_callback,
             warning_formatter=lambda error: (
                 "WARNING: Could not attach matched_projections thumbnail; "
                 f"scientific output remains available. {error}"
@@ -222,6 +245,7 @@ def run_external_orientation_job(
         )
         adapter.attach_tile_preview(
             result_set.comparison_paths[first_class_id],
+            warning_callback=warning_callback,
             warning_formatter=lambda error: (
                 "WARNING: Could not attach Class Orientation Dashboard Preview "
                 "to job tile; scientific output remains available. "

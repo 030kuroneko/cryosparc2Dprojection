@@ -225,6 +225,10 @@ def refine_axis_candidates(
                 progress_callback=progress_callback,
             )
         )
+        _emit_axis_progress(progress_callback, AxisSearchProgress(
+            "near-axis-refinement", candidate.family_name, candidate.class_number,
+            "class-completed", 1, 1, 0, 0.0, None,
+        ))
     return AxisRefinementResult(exact_result=exact_result, rows=tuple(rows))
 
 
@@ -339,6 +343,10 @@ def rank_axis_family(
                 progress_callback=progress_callback,
             )
         )
+        _emit_axis_progress(progress_callback, AxisSearchProgress(
+            "exact-ranking", family_record.name, class_number,
+            "class-completed", 1, 1, 0, 0.0, None,
+        ))
     candidates.sort(key=lambda candidate: (-candidate.exact_score, candidate.class_number))
     first_score = candidates[0].exact_score if candidates else None
     second_score = candidates[1].exact_score if len(candidates) > 1 else None

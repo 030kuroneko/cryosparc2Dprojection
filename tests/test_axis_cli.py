@@ -93,6 +93,23 @@ class AdvancingClock:
         return self.value
 
 
+def test_axis_search_shows_readable_progress_and_preserves_diagnostics(tmp_path):
+    job = _axis_job(tmp_path)
+    messages = []
+    run_axis_search_job(
+        job, 'W1', AxisSourceOutput('J1', 'templates'), AxisSourceOutput('J2', 'volume'),
+        families=('2fold',), config=AxisSearchConfig(top_n=1),
+        render_options=ClassRenderOptions(image_size=64, grid_size=16),
+        status_callback=messages.append,
+    )
+    summary = [message for message in messages if not message.startswith('[Details] ')]
+    assert any(message.startswith('Comparing symmetry axes · 1/1') for message in summary)
+    assert not any('stage=' in message or 'pass=' in message for message in summary)
+    assert messages[-1].startswith('Completed')
+    assert 'pass=' in (tmp_path / 'job-details.log').read_text()
+    assert not any('stage=' in message or 'Axis Search row JSON:' in message for message in job.logs)
+
+
 def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
     job = _axis_job(tmp_path)
     client = AxisClient(job)
@@ -133,52 +150,52 @@ def test_axis_cli_runs_from_templates_and_volume_only(tmp_path, capsys):
     aligned = job.saved["axis_candidates_aligned"]
     assert np.array_equal(preview["blob/idx"], aligned["blob/idx"])
     assert metadata["timings"]["exact-ranking"]["elapsed_seconds"] >= 0
+    details = [line.removeprefix("[Details] ") for line in capsys.readouterr().out.splitlines()]
     assert any(
         message.startswith("Axis Search stage: stage=exact-ranking status=started")
-        for message in job.logs
+        for message in details
     )
-    assert any(message.startswith("Surface Sampling Grid:") for message in job.logs)
-    assert "Axis Search stage: stage=exact-ranking status=started" in capsys.readouterr().out
+    assert any(message.startswith("Surface Sampling Grid:") for message in details)
     assert any(
-        "family=2fold rank=1 class=1" in message for message in job.logs
+        "family=2fold rank=1 class=1" in message for message in details
     )
     assert any(
         message.startswith("Axis Search row JSON:")
         and "exact_axis_rotation_matrix" in message
-        for message in job.logs
+        for message in details
     )
     rendering_started = next(
         index
-        for index, message in enumerate(job.logs)
+        for index, message in enumerate(details)
         if message.startswith(
             "Axis Search stage: stage=result-rendering status=started"
         )
     )
     sampling = next(
         index
-        for index, message in enumerate(job.logs)
+        for index, message in enumerate(details)
         if message.startswith("Surface Sampling Grid:")
     )
     candidate_completed = next(
         index
-        for index, message in enumerate(job.logs)
+        for index, message in enumerate(details)
         if message.startswith("Result Rendering progress:")
     )
     output_started = next(
         index
-        for index, message in enumerate(job.logs)
+        for index, message in enumerate(details)
         if message.startswith("Axis Search stage: stage=output-writing status=started")
     )
     output_completed = next(
         index
-        for index, message in enumerate(job.logs)
+        for index, message in enumerate(details)
         if message.startswith(
             "Axis Search stage: stage=output-writing status=completed"
         )
     )
     rendering_completed = next(
         index
-        for index, message in enumerate(job.logs)
+        for index, message in enumerate(details)
         if message.startswith(
             "Axis Search stage: stage=result-rendering status=completed"
         )
@@ -310,14 +327,14 @@ def test_axis_search_heartbeat_clock_is_injectable_without_a_cli_option(tmp_path
     )
 
     assert any(
-        message.startswith("Axis Search progress:")
+        message.startswith("[Details] Axis Search progress:")
         and "pass=normal-coarse" in message
         and "angles=2/" in message
         for message in messages
     )
 
 
-def test_axis_search_reports_recovery_after_a_cooperative_progress_stall(tmp_path):
+def test_axis_search_does_not_infer_a_stall_from_time_between_events(tmp_path):
     job = _axis_job(tmp_path)
     warnings = []
 
@@ -333,8 +350,7 @@ def test_axis_search_reports_recovery_after_a_cooperative_progress_stall(tmp_pat
         progress_clock=AdvancingClock(301.0),
     )
 
-    assert warnings
-    assert all("progress resumed" in warning for warning in warnings)
+    assert not any("progress resumed" in warning for warning in warnings)
 
 
 def test_axis_search_logs_the_active_stage_before_propagating_a_failure(tmp_path):
@@ -359,7 +375,7 @@ def test_axis_search_logs_the_active_stage_before_propagating_a_failure(tmp_path
         )
 
     assert any(
-        message.startswith("Axis Search stage: stage=exact-ranking status=failed")
+        message.startswith("Failed during Comparing symmetry axes")
         for message in job.logs
     )
 

@@ -21,6 +21,41 @@ from PIL import Image
 from tests.external_job_backend import InMemoryExternalJobBackend
 
 
+def test_orientation_exposes_readable_progress_until_publication_finishes(tmp_path):
+    project, job = _native_grid_external_job(tmp_path, class_size=8)
+    messages = []
+    run_external_orientation_job(
+        job, 'W1', SourceOutput('J1', 'particles'), SourceOutput('J1', 'templates'),
+        SourceOutput('J2', 'particles'), SourceOutput('J2', 'volume'),
+        render_options=ClassRenderOptions(image_size=64, grid_size=8),
+        status_callback=messages.append,
+    )
+    assert any(message.startswith('Finding class orientations · 0/1') for message in messages)
+    assert any(message.startswith('Finding class orientations · 1/1') for message in messages)
+    assert any(message.startswith('Uploading results') for message in messages)
+    assert messages[-1].startswith('Completed')
+    assert job.saved
+    assert not any(message.startswith('Surface Sampling Grid:') for message in job.logs)
+    assert 'Surface Sampling Grid:' in (tmp_path / 'job-details.log').read_text()
+    assert json.loads((tmp_path / 'job-progress.json').read_text())['state'] == 'completed'
+
+
+def test_publication_failure_does_not_report_success(tmp_path):
+    project, job = _native_grid_external_job(tmp_path, class_size=8)
+    job.fail_output = 'matched_projections'
+    messages = []
+    with pytest.raises(RuntimeError, match='Could not publish'):
+        run_external_orientation_job(
+            project, 'W1', SourceOutput('J1', 'particles'), SourceOutput('J1', 'templates'),
+            SourceOutput('J2', 'particles'), SourceOutput('J2', 'volume'),
+            render_options=ClassRenderOptions(image_size=64, grid_size=8),
+            status_callback=messages.append,
+        )
+    assert messages[-1].startswith('Failed during Uploading results')
+    assert not any(message.startswith('Completed') for message in messages)
+    assert json.loads((tmp_path / 'job-progress.json').read_text())['remaining_seconds'] is None
+
+
 def _native_grid_external_job(
     tmp_path,
     *,
@@ -404,7 +439,7 @@ def test_external_job_writes_orientation_results_for_cryosparc_5_0_6(tmp_path, s
     ]
     assert (tmp_path / "chimerax" / "class_001.cxc").exists()
     assert (tmp_path / "chimerax" / "all_classes.cxc").exists()
-    assert any(message.startswith("Surface Level:") for message in job.logs)
+    assert "Surface Level:" in (tmp_path / "job-details.log").read_text()
     assert any("third comparison column may appear blurred" in message for message in job.logs)
 
 
@@ -864,7 +899,8 @@ def test_external_job_records_automatic_native_rendering_grid_for_selected_map(
         "plotting allocations",
     ]
     sampling_log = next(
-        message for message in job.logs if message.startswith("Surface Sampling Grid:")
+        message for message in (tmp_path / "job-details.log").read_text().splitlines()
+        if message.startswith("Surface Sampling Grid:")
     )
     assert "original=6 x 4 x 3" in sampling_log
     assert "requested=native" in sampling_log
@@ -946,8 +982,9 @@ def test_external_job_logs_actionable_surface_memory_failure(tmp_path, monkeypat
         )
 
     assert raised.value is failure
-    assert job.logs[-1] == str(failure)
-    assert "--render-grid-size 384" in job.logs[-1]
+    assert str(failure) in job.logs
+    assert "--render-grid-size 384" in str(failure)
+    assert job.logs[-1].startswith("Failed during")
 
 
 def test_external_job_rejects_inconsistent_native_class_boxes_before_search(

@@ -288,7 +288,16 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
     @app.get('/api/jobs/<job_id>/log')
     def log(job_id):
         content = store.log(g.identity['owner'], job_id)
-        return (jsonify(log=content), 200) if content is not None else (jsonify(error='Job not found'), 404)
+        if content is None:
+            return jsonify(error='Job not found'), 404
+        summary, details = [], []
+        for line in content.splitlines():
+            if line.startswith('[Details] '):
+                details.append(line.removeprefix('[Details] '))
+            else:
+                summary.append(line)
+        return jsonify(log='\n'.join(summary), details='\n'.join(details),
+                       progress=store.progress(g.identity['owner'], job_id))
 
     @app.get('/api/schema')
     def schema():
@@ -323,7 +332,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     @app.get('/assets/<name>')
     def asset(name):
-        if name not in ('app.js', 'app.css', 'theme.js', 'help.js'):
+        if name not in ('app.js', 'app.css', 'theme.js', 'help.js', 'progress.js'):
             return jsonify(error='Not found'), 404
         return send_from_directory(Path(__file__).parent / 'web_assets', name)
 

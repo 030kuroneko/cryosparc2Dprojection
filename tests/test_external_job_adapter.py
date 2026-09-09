@@ -15,6 +15,37 @@ from cryosparc import mrc
 from tests.external_job_backend import InMemoryExternalJobBackend
 
 
+def test_progress_setup_and_finish_do_not_wait_for_remote_notice(tmp_path):
+    import json
+    from threading import Event, Thread
+    blocked, release, finished, delivered = Event(), Event(), Event(), Event()
+
+    class SlowLogger(InMemoryExternalJobBackend):
+        def log(self, message, **kwargs):
+            blocked.set()
+            release.wait(5)
+            super().log(message, **kwargs)
+            if message.startswith('Completed'):
+                delivered.set()
+
+    backend = SlowLogger(tmp_path)
+    adapter = CryoSPARCExternalJobAdapter(None, 'W1', job=backend)
+    def run():
+        with adapter.progress(heartbeat_seconds=0) as progress:
+            progress.start('Reading input data')
+        finished.set()
+    worker = Thread(target=run, daemon=True)
+    worker.start()
+    try:
+        assert blocked.wait(2)
+        assert finished.wait(2), 'Remote logging blocked progress setup or completion'
+        assert json.loads((tmp_path / 'job-progress.json').read_text())['state'] == 'completed'
+    finally:
+        release.set()
+        worker.join(3)
+    assert delivered.wait(2)
+
+
 def test_external_job_source_is_the_canonical_source_type():
     source = ExternalJobSource("J10", "templates_selected")
 

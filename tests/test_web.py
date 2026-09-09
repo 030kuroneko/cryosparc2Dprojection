@@ -241,6 +241,56 @@ def submission(**changes):
             'request_id': '3fe2ecb5-57a1-4d0a-8e51-d4270ba8f71d'}
 
 
+def test_job_log_separates_details_and_exposes_private_latest_progress(app, tmp_path):
+    import json
+    alice, bob = app.test_client(), app.test_client()
+    headers = login(alice)
+    login(bob, 'bob@example.org')
+    job = alice.post('/api/jobs', json=submission(), headers=headers).json
+    directory = tmp_path / job['id']
+    (directory / 'output.log').write_text(
+        'Reading input data\n[Details] stage=input-loading\nWARNING: Check map\n')
+    (directory / 'progress.json').write_text(json.dumps({
+        'state': 'running', 'stage': 'Uploading results', 'remaining_seconds': None,
+    }))
+    response = alice.get('/api/jobs/' + job['id'] + '/log')
+    assert response.status_code == 200
+    assert response.json['log'] == 'Reading input data\nWARNING: Check map'
+    assert response.json['details'] == 'stage=input-loading'
+    assert response.json['progress']['stage'] == 'Uploading results'
+    assert bob.get('/api/jobs/' + job['id'] + '/log').status_code == 404
+
+
+def test_progress_script_is_served_with_the_launcher(app):
+    client = app.test_client()
+    assert '/assets/progress.js' in client.get('/').text
+    script = client.get('/assets/progress.js')
+    assert script.status_code == 200
+    assert 'JobProgressView' in script.text
+
+
+@pytest.mark.parametrize('cut_inside_line', [False, True])
+def test_log_tail_keeps_complete_lines_and_hides_truncated_details(app, tmp_path, cut_inside_line):
+    client = app.test_client()
+    headers = login(client)
+    job = client.post('/api/jobs', json=submission(), headers=headers).json
+    suffix = '[Details] complete diagnostic\nWARNING: Check map\n'
+    if cut_inside_line:
+        content = ('[Details] ' + 'internal-state ' * 120 + '\n') * 40 + suffix
+    else:
+        # The 64 KiB boundary is already at a complete warning line.
+        suffix = 'WARNING: Keep boundary warning\n' + suffix
+        padding = '[Details] ' + 'x' * (65536 - len(suffix) - 11) + '\n'
+        content = 'previous line\n' + suffix + padding
+    (tmp_path / job['id'] / 'output.log').write_text(content)
+    result = client.get('/api/jobs/' + job['id'] + '/log').json
+    assert 'internal-state' not in result['log']
+    assert 'WARNING: Check map' in result['log']
+    assert 'complete diagnostic' in result['details']
+    if not cut_inside_line:
+        assert 'WARNING: Keep boundary warning' in result['log']
+
+
 def test_jobs_are_validated_idempotent_and_private_even_after_restart(app, tmp_path):
     alice, bob = app.test_client(), app.test_client()
     a, b = login(alice), login(bob, 'bob@example.org')

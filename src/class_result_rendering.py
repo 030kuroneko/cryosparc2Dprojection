@@ -268,7 +268,7 @@ def _render_to_staging(request, classes, directory):
         f"Surface Level: {surface.surface_level:.6g}",
     )
     if surface.warning:
-        _emit(request, warnings, "progress", "surface-rendering", surface.warning)
+        _emit(request, warnings, "warning", "surface-rendering", surface.warning)
     reproducibility_metadata["rendering"] = {
         "map": request.render_options.map_name,
         "surface_level": surface.surface_level,
@@ -420,6 +420,7 @@ def _render_to_staging(request, classes, directory):
             search_pixel_size,
         ),
     }
+    _emit(request, warnings, "progress", "preview-writing", "Writing result previews")
     preview_paths = []
     for page_number, page in enumerate(
         create_class_preview_pages(
@@ -445,6 +446,7 @@ def _render_to_staging(request, classes, directory):
         finally:
             plt.close(page)
         preview_paths.append(path)
+    _emit(request, warnings, "progress", "surface-rendering", "Generating class comparison images")
     comparison_paths = {}
     for item in classes:
         path = render_directory / f"class_{item.class_number:03d}_comparison.png"
@@ -464,6 +466,8 @@ def _render_to_staging(request, classes, directory):
         finally:
             plt.close(comparison)
         comparison_paths[item.class_id] = path
+        _emit(request, warnings, "progress", "class-completed",
+              f"Class {item.class_number} result ready", class_number=item.class_number)
     thumbnail_path = write_matched_projection_thumbnail(
         render_directory / "matched_projections_thumbnail.png", projections[0]
     )

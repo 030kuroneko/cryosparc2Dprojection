@@ -166,6 +166,7 @@ def test_exact_axis_ranking_uses_a_bounded_search_projection_and_reports_progres
     assert events
     assert events[-1].stage == "exact-ranking"
     assert events[-1].family_name == "2fold"
+    assert events[-1].pass_name == "class-completed"
     assert events[-1].class_number == 1
     assert events[-1].completed == events[-1].total
 
@@ -352,6 +353,7 @@ def test_near_axis_refinement_uses_a_bounded_hierarchical_grid_and_reports_progr
     assert refined.score_metadata["projection_evaluation_count"] <= 131
     assert events
     assert events[-1].stage == "near-axis-refinement"
+    assert events[-1].pass_name == "class-completed"
     assert events[-1].completed == events[-1].total
 
 
