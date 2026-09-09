@@ -183,6 +183,41 @@ def test_lan_http_login_can_allocate_request_ids_and_submit_without_browser_cryp
         headers=dict(headers, Origin='http://192.168.1.20:40001')).status_code == 403
 
 
+@pytest.mark.parametrize('hostname', ['192.168.1.20', '10.2.3.4', '[2001:db8::20]', 'lab-node'])
+def test_automatic_origin_supports_same_origin_login_and_jobs(tmp_path, monkeypatch, hostname):
+    import socket
+    monkeypatch.setattr(socket, 'gethostname', lambda: 'lab-node')
+    app = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                      'host': '0.0.0.0', 'port': 40100}, authenticate=authenticate)
+    client = app.test_client()
+    origin = f'http://{hostname}:40100'
+    csrf = client.get('/api/session', base_url=origin).json['csrf']
+    response = client.post('/api/login', base_url=origin,
+        json={'email': 'alice', 'password': 'correct'},
+        headers={'Origin': origin, 'X-CSRF-Token': csrf})
+    assert response.status_code == 200
+    headers = {'Origin': origin, 'X-CSRF-Token': response.json['csrf']}
+    assert client.post('/api/jobs', base_url=origin, json=submission(), headers=headers).status_code == 201
+    for other_origin in ('http://evil.example:40100', 'http://192.168.1.20:40101', 'null', ''):
+        assert client.post('/api/logout', base_url=origin,
+            headers=dict(headers, Origin=other_origin)).status_code == 403
+    assert client.post('/api/logout', base_url=origin,
+        headers={'Origin': origin, 'X-CSRF-Token': 'wrong'}).status_code == 403
+
+
+@pytest.mark.parametrize('authority', [
+    'evil.example:40000', 'localhost.evil.example:40000', '127.0.0.1.evil.example:40000',
+    '192.168.1.20:40001', '0.0.0.0:40000', '[::]:40000', '224.0.0.1:40000',
+])
+def test_automatic_origin_rejects_untrusted_authorities_even_with_forwarded_headers(tmp_path, authority):
+    app = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                      'host': '0.0.0.0'}, authenticate=authenticate)
+    response = app.test_client().get('/api/session', base_url='http://' + authority,
+        headers={'X-Forwarded-Host': 'localhost:40000', 'X-Forwarded-Proto': 'https'})
+    assert response.status_code == 400
+    assert 'Set-Cookie' not in response.headers
+
+
 def test_login_requires_csrf_rotates_session_and_never_returns_credentials(app):
     client = app.test_client()
     assert client.get('/api/jobs').status_code == 401

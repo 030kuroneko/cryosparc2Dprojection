@@ -31,7 +31,6 @@ def test_all_project_commands_use_cryosparc2d_prefix():
 
 @pytest.mark.parametrize('flags, message', [
     (['--port', '0'], '65535'),
-    (['--host', '0.0.0.0'], '--public-url'),
     (['--public-url', 'http://lab.example'], 'HTTPS'),
     (['--slurm'], 'unrecognized'),
 ])
@@ -88,6 +87,21 @@ def test_explicit_lan_http_listens_on_all_interfaces_with_exact_origin(tmp_path,
     main(['--url', 'https://cryo.example', '--host', '0.0.0.0',
           '--public-url', 'http://192.168.1.20:40000', '--data-dir', str(tmp_path)])
     assert 'unencrypted' in capsys.readouterr().out
+
+
+def test_host_alone_starts_lan_server_without_public_url(tmp_path, monkeypatch, capsys):
+    import waitress
+    def serve(app, **options):
+        assert options['host'] == '0.0.0.0'
+        assert options['port'] == 40000
+        client = app.test_client()
+        for host in ('192.168.1.20', '10.2.3.4', '127.0.0.1', 'localhost'):
+            assert client.get('/api/session', base_url=f'http://{host}:40000').status_code == 200
+    monkeypatch.setattr(waitress, 'serve', serve)
+    main(['--url', 'https://cryo.example', '--host', '0.0.0.0', '--data-dir', str(tmp_path)])
+    output = capsys.readouterr().out
+    assert 'unencrypted' in output
+    assert 'http://SERVER-IP:40000' in output
 
 
 def test_web_help_works_without_retired_desktop_modules():

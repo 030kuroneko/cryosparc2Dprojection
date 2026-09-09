@@ -53,8 +53,9 @@ server's loopback port 40000; for shared HTTPS deployment see below.
 
 Optional flags: `--port`, `--host`, `--public-url`, `--data-dir`, `--config`.
 Run `cryosparc2d --help` for details. Flags override optional JSON settings.
-`--host 0.0.0.0` requires an explicit `--public-url`, so the service knows which
-hostname/IP and origin to accept.
+`--public-url` is optional. Without it, direct HTTP accepts IP literals,
+`localhost`, the operating system's hostname and an explicitly configured bind
+hostname, on the configured port. Custom DNS aliases require `--public-url`.
 To use an existing HTTPS reverse proxy:
 
 ```bash
@@ -69,26 +70,28 @@ credentials; the browser cannot change this destination.
 
 ### Direct lab-network HTTP (explicit opt-in)
 
-For a trusted lab network/VPN, bind all IPv4 interfaces and specify the actual
-address users will open. Replace the example IP with this web server's address:
+For a trusted lab network/VPN, bind all IPv4 interfaces:
 
 ```bash
 cryosparc2d --url http://your-cryosparc-server:39000 \
-  --host 0.0.0.0 \
-  --public-url http://192.168.1.20:40000
+  --host 0.0.0.0
 ```
 
-Users open `http://192.168.1.20:40000`, **not** `http://0.0.0.0:40000`.
-Use `--port` and the matching public URL port if changing 40000. The same settings
-can be supplied through JSON `host` and `public_url`. The default without these
-options remains loopback-only; HTTPS deployments keep their existing policy.
+Users open `http://192.168.1.20:40000` (replace with the server's actual IP),
+**not** `http://0.0.0.0:40000`. Use `--port` to change 40000.
+Optionally add `--public-url http://projection.lab.example:40000` to restrict
+access to a fixed address. The same settings can be supplied through JSON `host`
+and optional `public_url`; an existing JSON public URL remains in effect even
+when the flag is omitted. The default remains loopback-only.
 
 This mode sends passwords, session cookies and administrator keys over unencrypted
 HTTP. It is authorized only for trusted lab/VPN use, not Internet exposure.
 Restrict port 40000 with your existing firewall/network policy; the launcher does
-not open firewall rules. CSRF checks, exact public-host/origin validation,
-authentication and per-user job isolation remain enabled. Other aliases are not
-automatically trusted in LAN mode; use the configured address consistently.
+not open firewall rules. CSRF checks, authentication and per-user job isolation
+remain enabled. Writes must match the request's exact scheme, hostname and port;
+arbitrary DNS hosts and forwarded headers are not trusted. An explicit public URL
+retains fixed-host/origin validation. Stay on one hostname while signed in because
+cookies are host-specific.
 
 Request IDs are generated server-side so job submission does not require the
 browser's secure-context-only
@@ -179,10 +182,10 @@ sign-in throttle therefore applies to the proxy as a whole (10 attempts per
 five minutes); the proxy may enforce additional per-client limits. The app is
 intended for trusted lab/VPN access, not unrestricted public Internet service.
 
-For a loopback-only development session, set `public_url` to
-`http://127.0.0.1:40000`, `host` to `127.0.0.1` and `allow_http` to `true`.
-Loopback HTTP mode accepts the documented local aliases; direct LAN HTTP requires
-the explicit all-interface bind and actual public URL shown above.
+For a loopback-only development session, omit `public_url` and use the default
+`host` of `127.0.0.1`. Direct LAN HTTP uses `--host 0.0.0.0` as shown above.
+Existing explicit loopback HTTP configurations with `allow_http: true` remain
+supported.
 
 Example service unit after creating the dedicated account and private directories:
 
