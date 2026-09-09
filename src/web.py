@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from flask import Flask, g, jsonify, request, send_from_directory
 
 from cryosparc_2d_projection.workflow_config import WORKFLOWS, actions, default_values, validate_url
-from cryosparc_2d_projection.workflow_fields import BASIC, LABELS, HINTS, TITLES, DESCRIPTIONS
+from cryosparc_2d_projection.workflow_fields import BASIC, LABELS, TITLES, DESCRIPTIONS, FIELD_HELP, SYMMETRY_HELP, PLACEHOLDERS, HELP_SOURCES
 from cryosparc_2d_projection.web_jobs import JobStore
 
 WEB_LABELS = dict(LABELS, render_grid_size='Surface sampling grid size',
@@ -28,9 +28,12 @@ WEB_LABELS = dict(LABELS, render_grid_size='Surface sampling grid size',
 
 def cryosparc_login(url, email, password):
     """Use the SDK's public login API; never save the password or global auth."""
+    from cryosparc import __version__
     from cryosparc.api import APIClient
     from cryosparc.constants import API_SUFFIX
-    client = APIClient(url + API_SUFFIX, timeout=30)
+    # The web proxy preserves bearer auth only for the official Tools user agent.
+    client = APIClient(url + API_SUFFIX, timeout=30,
+                       headers={'User-Agent': f'cryosparc-tools/{__version__}'})
     token = client.login(grant_type='password', username=email,
                          password=sha256(password.encode()).hexdigest())
     # APIClient may return plain JSON when the server schema is not registered.
@@ -275,8 +278,10 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
                          'rendering' if key.startswith(('render_', 'surface_', 'comparison_', 'preview_', 'auto_crop')) or key == 'axis_roll' else
                          'search')
                 label = key.replace('_', ' ').replace('resolution A', 'resolution (Å)')
+                hint, help_text = SYMMETRY_HELP[name] if key == 'symmetry' else FIELD_HELP[key]
                 fields.append({'key': key, 'label': WEB_LABELS.get(key, label[0].upper() + label[1:]),
-                               'hint': HINTS.get(key, action.help) or '', 'required': action.required,
+                               'hint': hint, 'help': help_text, 'placeholder': PLACEHOLDERS.get(key, ''),
+                               'help_url': HELP_SOURCES.get(key, ''), 'required': action.required,
                                'default': defaults[key], 'group': group,
                                'type': 'boolean' if isinstance(action, argparse._StoreTrueAction) else 'text',
                                'choices': list(action.choices) if action.choices else []})
@@ -291,7 +296,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     @app.get('/assets/<name>')
     def asset(name):
-        if name not in ('app.js', 'app.css', 'theme.js'):
+        if name not in ('app.js', 'app.css', 'theme.js', 'help.js'):
             return jsonify(error='Not found'), 404
         return send_from_directory(Path(__file__).parent / 'web_assets', name)
 

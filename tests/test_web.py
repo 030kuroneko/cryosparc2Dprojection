@@ -53,6 +53,51 @@ def test_sdk_login_accepts_plain_json_and_model_responses(tmp_path, monkeypatch,
     assert client.get('/api/session').json['email'] == 'alice@example.org'
 
 
+def test_login_preserves_bearer_token_through_cryosparc_web_proxy(tmp_path, monkeypatch):
+    import re
+    import httpx
+    from hashlib import sha256
+    from urllib.parse import parse_qs
+
+    response_schema = {'200': {'content': {'application/json': {'schema': {}}}}}
+    schema = {'info': {}, 'components': {}, 'paths': {
+        '/token': {'post': {'summary': 'login', 'responses': response_schema,
+                           'requestBody': {'content': {'application/x-www-form-urlencoded': {}}}}},
+        '/users/me': {'get': {'summary': 'users.me', 'responses': response_schema}},
+    }}
+    calls = []
+
+    def upstream(request):
+        path = request.url.path
+        calls.append(path)
+        if path.endswith('/openapi.json'):
+            return httpx.Response(200, json=schema)
+        if path.endswith('/token'):
+            form = parse_qs(request.content.decode())
+            assert form['username'] == ['alice@example.org']
+            assert form['password'] == [sha256(b'correct').hexdigest()]
+            return httpx.Response(200, json={'access_token': 'upstream-secret', 'token_type': 'bearer'})
+        assert path.endswith('/users/me')
+        # CryoSPARC 5.0.6 forwards Authorization only for its Tools user agent;
+        # other clients use the browser session (empty in this API-only flow).
+        tools_client = re.fullmatch(r'cryosparc-tools/\S+', request.headers.get('user-agent', ''), re.I)
+        bearer = request.headers.get('authorization') if tools_client else 'Bearer '
+        if bearer != 'Bearer upstream-secret':
+            return httpx.Response(401, json={'detail': 'Could not validate credentials'})
+        return httpx.Response(200, json={'_id': 'authoritative-user-id'})
+
+    real_client = httpx.Client
+    def client_with_transport(*args, **kwargs):
+        return real_client(*args, **kwargs, transport=httpx.MockTransport(upstream))
+    monkeypatch.setattr(httpx, 'Client', client_with_transport)
+    client = create_app({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example',
+                         'public_url': 'http://localhost', 'allow_http': True}).test_client()
+    login(client)
+    assert client.get('/api/session').json['email'] == 'alice@example.org'
+    assert any(path.endswith('/token') for path in calls)
+    assert calls[-1].endswith('/users/me')
+
+
 @pytest.mark.parametrize('token,user', [
     ({'access_token': ''}, {'_id': 'user'}),
     ({'access_token': None}, {'_id': 'user'}),
@@ -213,6 +258,13 @@ def test_hidden_source_outputs_use_workflow_defaults(app, workflow, expected):
     response = client.post('/api/jobs', json=dict(submission(), workflow=workflow, values=values), headers=headers)
     assert response.status_code == 201
     assert {key: response.json['values'][key] for key in expected} == expected
+
+
+def test_ui_offers_settings_export_and_run_without_copy_command(app):
+    page = app.test_client().get('/').text
+    assert 'id="copy-command"' not in page
+    assert 'id="save-settings"' in page
+    assert 'id="submit-job"' in page
 
 
 def test_theme_control_and_script_are_available_before_login(app):
@@ -503,3 +555,34 @@ def test_axis_schema_and_submission_support_selected_symmetry(app):
     assert response.json['values']['symmetry'] == 'O'
     body['values']['axis_family'] = '5fold'
     assert client.post('/api/jobs', json=body, headers=headers).status_code == 400
+
+
+def test_schema_explains_every_visible_field_and_provides_job_examples(app):
+    client = app.test_client()
+    login(client)
+    workflows = client.get('/api/schema').json['workflows']
+    for workflow in workflows.values():
+        for field in workflow['fields']:
+            assert field['hint'].strip(), field['key']
+            assert 'help' in field
+        fields = {field['key']: field for field in workflow['fields']}
+        assert fields['select_job']['placeholder'] == 'e.g. J123'
+        assert '256' in fields['render_grid_size']['help']
+        assert 'Volumes' in fields['surface_level']['help']
+        assert 'same map' in fields['surface_level']['help']
+        assert '1024' in fields['render_size']['hint']
+    fields = {field['key']: field for field in workflows['orientation']['fields']}
+    assert fields['refinement_job']['placeholder'] == 'e.g. J124'
+    assert 'overlap' in fields['refinement_job']['help']
+
+
+def test_page_exposes_help_script_and_admin_field_guidance(app):
+    client = app.test_client()
+    page = client.get('/').text
+    assert '/assets/help.js' in page
+    assert client.get('/assets/help.js').status_code == 200
+    for field in ('profile', 'admin-key', 'slurm-work_dir', 'slurm-python',
+                  'slurm-partition', 'slurm-account', 'slurm-qos', 'slurm-cpus',
+                  'slurm-memory_mb', 'slurm-time_minutes'):
+        assert f'id="{field}-hint"' in page
+        assert f'aria-describedby="{field}-hint"' in page

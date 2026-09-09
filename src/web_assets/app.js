@@ -124,17 +124,21 @@ $("logout").addEventListener("click", async () => {
     $("form-error").textContent = error.message;
   }
 });
+function fieldHint(f, id) {
+  const help = f.help ? `<span class="field-help"><button type="button" class="help-button" aria-label="Help for ${escape(f.label)}" aria-expanded="false" aria-controls="${id}-help">?</button><span class="help-panel" id="${id}-help" hidden>${escape(f.help)}${f.help_url ? ` <a href="${escape(f.help_url)}" target="_blank" rel="noopener noreferrer">CryoSPARC guide ↗</a>` : ""}</span></span>` : "";
+  return `<div class="hint-row"><small class="hint" id="${id}-hint">${escape(f.hint)}</small>${help}</div>`;
+}
 function field(f) {
-  const value = state.pages[state.workflow][f.key],
-    id = "field-" + f.key;
-  let input;
+  const value = state.pages[state.workflow][f.key], id = "field-" + f.key;
+  const description = `aria-describedby="${id}-hint"`;
   if (f.type === "boolean")
-    return `<div class="field"><div class="check-row"><input id="${id}" data-key="${f.key}" type="checkbox" ${value ? "checked" : ""}><label for="${id}">${escape(f.label)}</label></div><small class="hint">${escape(f.hint)}</small></div>`;
+    return `<div class="field"><div class="check-row"><input id="${id}" data-key="${f.key}" type="checkbox" ${description} ${value ? "checked" : ""}><label for="${id}">${escape(f.label)}</label></div>${fieldHint(f, id)}</div>`;
+  let input;
   if (f.choices.length)
-    input = `<select id="${id}" data-key="${f.key}">${f.choices.map((c) => `<option ${String(c) === value ? "selected" : ""}>${escape(c)}</option>`).join("")}</select>`;
+    input = `<select id="${id}" data-key="${f.key}" ${description}>${f.choices.map((c) => `<option ${String(c) === value ? "selected" : ""}>${escape(c)}</option>`).join("")}</select>`;
   else
-    input = `<input id="${id}" data-key="${f.key}" value="${escape(value)}" ${f.required ? "required" : ""} maxlength="2048" autocomplete="off" ${["project", "workspace", "select_job", "refinement_job", "volume_job"].includes(f.key) ? `pattern="${f.key === "project" ? "P" : f.key === "workspace" ? "W" : "J"}[1-9][0-9]*"` : ""}>`;
-  return `<label class="field" for="${id}">${escape(f.label)}${f.required ? " *" : ""}${input}<small class="hint">${escape(f.hint)}</small><span class="field-error" id="error-${f.key}"></span></label>`;
+    input = `<input id="${id}" data-key="${f.key}" value="${escape(value)}" placeholder="${escape(f.placeholder || "")}" ${description} ${f.required ? "required" : ""} maxlength="2048" autocomplete="off" ${["project", "workspace", "select_job", "refinement_job", "volume_job"].includes(f.key) ? `pattern="${f.key === "project" ? "P" : f.key === "workspace" ? "W" : "J"}[1-9][0-9]*"` : ""}>`;
+  return `<div class="field"><label for="${id}">${escape(f.label)}${f.required ? " *" : ""}</label>${input}${fieldHint(f, id)}<span class="field-error" id="error-${f.key}"></span></div>`;
 }
 function renderForm() {
   const workflow = state.schema.workflows[state.workflow];
@@ -210,7 +214,6 @@ function profileNote() {
   const isSlurm = !profile || profile.backend === "slurm";
   $("slurm-panel").hidden = !isSlurm;
   $("slurm-fields").disabled = !isSlurm || $("slurm-fields").hidden;
-  $("copy-command").hidden = isSlurm;
   $("profile-note").textContent = !profile
     ? "Ask the service administrator to configure Slurm below before submitting."
     : isSlurm
@@ -370,36 +373,6 @@ async function refresh() {
     refreshing = false;
   }
 }
-function quote(text) {
-  return "'" + String(text).replaceAll("'", "'\\''") + "'";
-}
-$("copy-command").addEventListener("click", async () => {
-  const parts = [
-    state.workflow === "axis"
-      ? "cryosparc2d-axis-search"
-      : "cryosparc2d-projection",
-    "--url",
-    quote(state.url),
-  ];
-  for (const [key, value] of Object.entries(state.pages[state.workflow])) {
-    if (value === false || value === "") continue;
-    const flag = "--" + key.replaceAll("_", "-");
-    if (value === true) {
-      parts.push(flag);
-      continue;
-    }
-    for (const part of key === "axis_roll" ? value.split(";") : [value])
-      parts.push(flag, quote(part));
-  }
-  try {
-    await navigator.clipboard.writeText(parts.join(" "));
-    $("form-status").textContent =
-      "Command copied · uses your local CryoSPARC login";
-  } catch (error) {
-    $("form-error").textContent =
-      "Clipboard unavailable. Use Save settings to export your configuration.";
-  }
-});
 $("save-settings").addEventListener("click", () => {
   const pages = Object.fromEntries(
     Object.entries(state.pages).map(([name, values]) => [

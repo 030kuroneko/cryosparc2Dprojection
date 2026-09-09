@@ -6,6 +6,7 @@
     <title>2D Projection · CryoSPARC workspace launcher</title>
     <script src="/assets/theme.js"></script>
     <link rel="stylesheet" href="/assets/app.css" />
+    <script src="/assets/help.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
@@ -101,7 +102,8 @@
               <section class="card execution">
                 <p class="eyebrow">EXECUTION</p>
                 <h2>Where your run happens</h2>
-                <label>Execution profile<select id="profile"></select></label>
+                <label>Execution profile<select id="profile" aria-describedby="profile-hint"></select></label>
+<div class="hint-row"><small class="hint" id="profile-hint">Choose where the workflow runs.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Execution profile" aria-expanded="false" aria-controls="profile-help">?</button><span class="help-panel" id="profile-help" hidden>Local runs on the launcher server. Slurm submits to the configured cluster. Results are published to the selected CryoSPARC workspace.</span></span></div>
                 <p id="profile-note" class="hint"></p>
                 <div class="divider"></div>
                 <p class="eyebrow">WHAT YOU’LL GET</p>
@@ -142,62 +144,61 @@
               </p>
               <label
                 >Administrator key<input
-                  id="admin-key"
+                  id="admin-key" aria-describedby="admin-key-hint"
                   type="password"
                   autocomplete="off"
               /></label>
+<div class="hint-row"><small class="hint" id="admin-key-hint">Enter the launcher administrator key to edit Slurm settings.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Administrator key" aria-expanded="false" aria-controls="admin-key-help">?</button><span class="help-panel" id="admin-key-help" hidden>Use the private key provided by the launcher administrator. This is separate from your CryoSPARC password.</span></span></div>
               <button id="unlock-admin" type="button">Unlock settings</button>
               <fieldset id="slurm-fields" disabled hidden>
-                <label
+                <div class="field"><label
                   >Shared working directory<input
-                    id="slurm-work_dir"
+                    id="slurm-work_dir" aria-describedby="slurm-work_dir-hint"
                     placeholder="/shared/cryosparc2d/jobs"
                 /></label>
-                <p class="hint">
-                  Use a dedicated shared directory owned by the service account
-                  (permissions 700), outside CryoSPARC-managed project folders.
-                  Local job history stays on this server.
-                </p>
-                <label>Compute-node Python<input id="slurm-python" /></label>
-                <p class="hint">
-                  Defaults to this server’s active Conda Python. The same
-                  environment and package must exist at this path on compute
-                  nodes.
-                </p>
-                <label
+<div class="hint-row"><small class="hint" id="slurm-work_dir-hint">Enter a dedicated directory accessible from the server and compute nodes.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Shared working directory" aria-expanded="false" aria-controls="slurm-work_dir-help">?</button><span class="help-panel" id="slurm-work_dir-help" hidden>Use the same absolute path on all nodes, outside CryoSPARC-managed project folders. The directory must be owned by the service account with permissions 700. Local job history stays on this server.</span></span></div></div>
+                <div class="field"><label>Compute-node Python<input id="slurm-python" aria-describedby="slurm-python-hint" /></label>
+<div class="hint-row"><small class="hint" id="slurm-python-hint">Enter the Python executable available on compute nodes.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Compute-node Python" aria-expanded="false" aria-controls="slurm-python-help">?</button><span class="help-panel" id="slurm-python-help" hidden>Use an absolute path to the environment containing this package and its dependencies. The default is this server’s active Python; verify the same path works on compute nodes.</span></span></div></div>
+                <div class="field"><label
                   >Partition<input
-                    id="slurm-partition"
+                    id="slurm-partition" aria-describedby="slurm-partition-hint"
                     placeholder="Cluster default"
                 /></label>
-                <label
+<div class="hint-row"><small class="hint" id="slurm-partition-hint">Leave blank for the cluster default, or enter your partition name.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Partition" aria-expanded="false" aria-controls="slurm-partition-help">?</button><span class="help-panel" id="slurm-partition-help" hidden>Selects the Slurm partition for new jobs. Use a partition available to the service account.</span></span></div></div>
+                <div class="field"><label
                   >Account<input
-                    id="slurm-account"
+                    id="slurm-account" aria-describedby="slurm-account-hint"
                     placeholder="Cluster default"
                 /></label>
-                <label
-                  >QoS<input id="slurm-qos" placeholder="Cluster default"
+<div class="hint-row"><small class="hint" id="slurm-account-hint">Leave blank for the cluster default, or enter your Slurm account.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Account" aria-expanded="false" aria-controls="slurm-account-help">?</button><span class="help-panel" id="slurm-account-help" hidden>Sets the Slurm allocation or billing account for new jobs.</span></span></div></div>
+                <div class="field"><label
+                  >QoS<input id="slurm-qos" aria-describedby="slurm-qos-hint" placeholder="Cluster default"
                 /></label>
-                <label
+<div class="hint-row"><small class="hint" id="slurm-qos-hint">Leave blank for the cluster default, or enter an allowed QoS.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for QoS" aria-expanded="false" aria-controls="slurm-qos-help">?</button><span class="help-panel" id="slurm-qos-help" hidden>Sets the Slurm quality-of-service policy for new jobs. Available values depend on your cluster configuration.</span></span></div></div>
+                <div class="field"><label
                   >CPUs<input
-                    id="slurm-cpus"
+                    id="slurm-cpus" aria-describedby="slurm-cpus-hint"
                     type="number"
                     min="1"
                     max="1000000"
                 /></label>
-                <label
+<div class="hint-row"><small class="hint" id="slurm-cpus-hint">Request 4 CPUs per job by default.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for CPUs" aria-expanded="false" aria-controls="slurm-cpus-help">?</button><span class="help-panel" id="slurm-cpus-help" hidden>Enter a positive integer. More CPUs reserve more resources but may not accelerate every stage.</span></span></div></div>
+                <div class="field"><label
                   >Memory (MiB)<input
-                    id="slurm-memory_mb"
+                    id="slurm-memory_mb" aria-describedby="slurm-memory_mb-hint"
                     type="number"
                     min="1"
                     max="1000000"
                 /></label>
-                <label
+<div class="hint-row"><small class="hint" id="slurm-memory_mb-hint">Default: 16384 MiB (16 GiB) per job.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Memory" aria-expanded="false" aria-controls="slurm-memory_mb-help">?</button><span class="help-panel" id="slurm-memory_mb-help" hidden>Sets the Slurm memory request. Larger maps and full-grid surface extraction may need more memory.</span></span></div></div>
+                <div class="field"><label
                   >Time limit (minutes)<input
-                    id="slurm-time_minutes"
+                    id="slurm-time_minutes" aria-describedby="slurm-time_minutes-hint"
                     type="number"
                     min="1"
                     max="1000000"
                 /></label>
+<div class="hint-row"><small class="hint" id="slurm-time_minutes-hint">Default: 120 minutes per job.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Time limit" aria-expanded="false" aria-controls="slurm-time_minutes-help">?</button><span class="help-panel" id="slurm-time_minutes-help" hidden>Sets the maximum Slurm runtime. Allow enough time for searching and rendering; the scheduler may terminate jobs that exceed this limit.</span></span></div></div>
                 <div class="check-row">
                   <input id="slurm-shared_confirmed" type="checkbox" /><label
                     for="slurm-shared_confirmed"
@@ -220,8 +221,7 @@
             <p id="form-status" role="status">
               <span class="status-dot"></span>Ready to configure
             </p>
-            <button id="copy-command" type="button">Copy command</button
-            ><button id="submit-job" type="submit" class="primary">
+            <button id="submit-job" type="submit" class="primary">
               Run workflow →
             </button>
           </div>

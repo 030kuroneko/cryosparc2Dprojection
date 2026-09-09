@@ -986,3 +986,54 @@ pre {
     display: none;
   }
 }
+
+/* Inline hints remain readable; expanded help takes space instead of clipping. */
+.hint-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+.hint-row > .hint { margin: 0; }
+.field-help { display: contents; }
+button.help-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  line-height: 1;
+  cursor: help;
+}
+button.help-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.help-panel {
+  flex-basis: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.help-panel a { color: var(--accent); }
+.hint-row > .hint {
+  flex: 1 1 calc(100% - 25px);
+  min-width: 0;
+}
+button.help-button { flex: 0 0 19px; }
+#slurm-fields > .field:has(#slurm-work_dir),
+#slurm-fields > .field:has(#slurm-python) { grid-column: 1 / -1; }
+#slurm-panel button.help-button { margin-top: 0; }
+.field .hint-row > .hint { margin-top: 0; }
