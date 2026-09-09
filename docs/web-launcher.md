@@ -229,7 +229,7 @@ while a job is queued or running. These files are not encrypted at rest: the
 Linux service account and administrators are trusted. Do not include them in
 general-purpose shared backups. Active job credentials are needed if the web
 process restarts or a Slurm allocation starts later. They are removed on observed
-completion/failure. The SDK auth file has a 24-hour local lifetime; upstream token
+completion/failure, with persistent retries if removal fails. The SDK auth file has a 24-hour local lifetime; upstream token
 expiry may be earlier. Expired credentials fail the run and require a fresh login
 and explicit resubmission.
 
@@ -244,6 +244,21 @@ The worker writes an atomic completion marker. A successful `sbatch` is only
 submission, not completion. Missing accounting or uncertain submission outcomes
 remain `unknown` and block further dispatch, preventing duplicate work. The web
 service never automatically retries a failed or ambiguous scientific job.
+
+Web Job Credential Cleanup is tracked separately from the execution outcome.
+Cleanup failure preserves that outcome and does not block the next queued job.
+The dispatcher retries after 5, 10, 20, 40, 80 and 160 seconds, then every 300
+seconds until removal succeeds (on its next polling cycle). Retry progress and
+the next attempt time survive restarts. The selected job's Activity log section
+shows a cleanup-pending warning, which disappears after successful cleanup;
+no separate notification is sent. Cleanup exceptions do not expose file paths
+or exception details in that warning. Existing terminal records are checked for
+leftover credentials once when upgrading to cleanup tracking.
+
+The job lifecycle module owns queue claims, execution reconciliation and cleanup
+state. Local and Slurm execution observations are evaluated against the worker's
+completion record before applying a terminal outcome. A worker still records
+its execution result if its own credential removal fails.
 
 If a job remains unknown after a crash, an administrator must inspect its
 directory, Slurm job name (`projection-<web-job-id>`), `squeue`, `sacct` and
@@ -260,12 +275,13 @@ disk space. A changed CryoSPARC instance should use a new data directory.
 ## Verification
 
 ```bash
-uv run --extra web pytest tests/test_web.py tests/test_web_execution.py -q
+uv run --extra web pytest tests/test_web.py tests/test_web_execution.py tests/test_web_job_lifecycle.py tests/test_web_job_details.py -q
 ```
 
 Tests exercise authentication, CSRF, user isolation, idempotency, concurrent
 submission, parameter validation, persisted history, a serial local process queue,
-worker failure cleanup, and Slurm command/status handling using simulated external
+worker failure cleanup, persistent cleanup backoff and recovery, detail warnings,
+and Slurm command/status handling using simulated external
 commands. A real cluster acceptance run is still required after configuring its
 shared paths, API access, profile resources and TLS. It should verify both
 workflows with real data and two separate users.

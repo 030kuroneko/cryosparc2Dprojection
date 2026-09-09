@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import sys
 
+from cryosparc_2d_projection.web_jobs import record_worker_completion
+
 
 class JobLog:
     """Bounded line buffering prevents token fragments from leaking between writes."""
@@ -68,18 +70,15 @@ def main(argv=None):
                 detail = '' if code == 0 else 'Workflow returned an error. Check the activity log.'
             except SystemExit as error:
                 code = error.code if isinstance(error.code, int) else 1
-                detail = 'Workflow command failed. Check the activity log.'
+                detail = '' if code == 0 else 'Workflow command failed. Check the activity log.'
             except Exception as error:
                 # Upstream exception strings may contain credentials or HTTP headers.
                 print('Workflow failed (' + type(error).__name__ + '). Check inputs, CryoSPARC access and the External Job event log.')
                 detail = 'Workflow failed. Check the activity log and CryoSPARC External Job.'
             finally:
-                auth_path.unlink(missing_ok=True)
                 print('Workflow completed.' if code == 0 else 'Workflow failed.')
                 log.finish()
-    temporary = directory / 'result.tmp'
-    temporary.write_text(json.dumps({'exit_code': code, 'detail': detail}), encoding='utf-8')
-    temporary.replace(directory / 'result.json')
+    record_worker_completion(directory, code, detail)
     return code
 
 

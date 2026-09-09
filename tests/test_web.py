@@ -621,3 +621,38 @@ def test_page_exposes_help_script_and_admin_field_guidance(app):
                   'slurm-memory_mb', 'slurm-time_minutes'):
         assert f'id="{field}-hint"' in page
         assert f'aria-describedby="{field}-hint"' in page
+
+
+def test_cleanup_warning_is_owner_scoped_and_clears_without_changing_outcome(app, tmp_path, monkeypatch):
+    from pathlib import Path
+    from cryosparc_2d_projection.web_jobs import JobStore
+    from cryosparc_2d_projection.web_execution import Dispatcher
+    client = app.test_client()
+    headers = login(client)
+    job_id = client.post('/api/jobs', json=submission(), headers=headers).json['id']
+    now = [1000]
+    store = JobStore({'data_dir': str(tmp_path), 'cryosparc_url': 'https://cryo.example'},
+                     clock=lambda: now[0])
+    auth = store.directory(job_id) / 'config/cryosparc-tools/auth.json'
+    unlink = Path.unlink
+    def remove(path, **kwargs):
+        if path == auth:
+            raise PermissionError('private cleanup error')
+        return unlink(path, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'unlink', remove)
+        store.update(job_id, 'completed')
+    response = client.get('/api/jobs/' + job_id)
+    assert response.json['state'] == 'completed'
+    assert response.json['cleanup_pending'] is True
+    assert 'private cleanup error' not in response.text
+    assert client.get('/api/jobs').json['jobs'][0]['cleanup_pending'] is True
+    bob = app.test_client()
+    login(bob, 'bob@example.org')
+    assert bob.get('/api/jobs/' + job_id).status_code == 404
+    assert bob.get('/api/jobs').json['jobs'] == []
+    now[0] = 1005
+    Dispatcher(store).tick()
+    response = client.get('/api/jobs/' + job_id)
+    assert response.json['state'] == 'completed'
+    assert response.json['cleanup_pending'] is False

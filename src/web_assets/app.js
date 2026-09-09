@@ -58,6 +58,8 @@ function showLogin() {
   });
   $("job-list").replaceChildren();
   $("job-log").textContent = "";
+  $("job-cleanup-warning").textContent = "";
+  $("job-cleanup-warning").hidden = true;
 }
 async function bootstrap() {
   try {
@@ -338,6 +340,13 @@ async function loadLog() {
   if (!state.selected) return;
   const id = state.selected,
     generation = state.generation;
+  const selectedJob = state.jobs.find((job) => job.id === id);
+  const warning = $("job-cleanup-warning");
+  const outcome = { completed: "Computation succeeded", failed: "Computation failed", interrupted: "Computation interrupted" };
+  warning.textContent = selectedJob?.cleanup_pending
+    ? `${outcome[selectedJob.state] || "Execution finished"}; credential cleanup pending retry. Retrying automatically, including after server restarts.`
+    : "";
+  warning.hidden = !selectedJob?.cleanup_pending;
   try {
     const data = await api("/api/jobs/" + id + "/log");
     if (state.selected !== id || generation !== state.generation) return;
