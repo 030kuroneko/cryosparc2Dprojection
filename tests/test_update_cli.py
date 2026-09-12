@@ -146,3 +146,39 @@ def test_update_command_reports_when_git_is_unavailable(tmp_path, monkeypatch, c
 
     assert exit_code == 1
     assert "Git executable was not found" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('mode', ['cli', 'web'])
+def test_uv_installation_updates_without_pip_and_preserves_its_mode(tmp_path, monkeypatch, mode):
+    repository = _initialized_repository(tmp_path)
+    _git(repository, 'branch', 'upstream')
+    _git(repository, 'branch', '--set-upstream-to=upstream', 'main')
+    (repository / 'uv.lock').write_text('test lock')
+    environment = tmp_path / 'managed'
+    bin_dir = environment / 'bin'
+    bin_dir.mkdir(parents=True)
+    (environment / 'pyvenv.cfg').write_text('uv = 0.11.30\n')
+    log = tmp_path / 'commands.jsonl'
+    monkeypatch.setenv('UPDATE_COMMAND_LOG', str(log))
+    monkeypatch.setenv('UPDATE_MODE', mode)
+    script = (
+        '#!/usr/bin/env python3\n'
+        'import json, os, sys\n'
+        'with open(os.environ["UPDATE_COMMAND_LOG"], "a") as out:\n'
+        '    out.write(json.dumps([os.path.basename(sys.argv[0]), *sys.argv[1:]]) + "\\n")\n'
+        'if "-c" in sys.argv: print(os.environ["UPDATE_MODE"])\n'
+    )
+    for name in ('python', 'uv'):
+        path = bin_dir / name
+        path.write_text(script)
+        path.chmod(0o755)
+    import os
+    monkeypatch.setenv('PATH', str(bin_dir) + os.pathsep + os.environ['PATH'])
+
+    assert main([], repository=repository, python_executable=bin_dir / 'python') == 0
+
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    sync = next(c for c in calls if c[:2] == ['uv', 'sync'])
+    assert '--locked' in sync and '--no-default-groups' in sync
+    assert ('--extra' in sync) == (mode == 'web')
+    assert not any('pip' in c or 'pytest' in c for c in calls)

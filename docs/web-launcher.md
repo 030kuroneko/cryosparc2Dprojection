@@ -30,6 +30,86 @@ References: [Slurm sbatch](https://slurm.schedmd.com/sbatch.html),
 
 ## Install and configure
 
+### Managed installation (recommended)
+
+Install the CLI through uv or Conda as described in the
+[package installation guide](../README.md#install). Managed service setup also
+requires uv in PATH and a checkout containing `pyproject.toml`, `uv.lock`, and
+`src`. On a Linux server running systemd:
+
+```bash
+cryosparc2d-service install --source /absolute/path/to/checkout
+```
+
+The command uses sudo for setup. It creates a dedicated `cryosparc2d` service
+account, installs Python and the locked Web dependencies into a root-managed
+runtime, asks for required settings, validates HTTP reachability and the local
+computation environment as the service account, and enables/starts the service.
+HTTP reachability does not authenticate a CryoSPARC user or submit a test job;
+users sign in with their own accounts in the browser. The host must have systemd,
+`useradd`, `runuser`, and `visudo`; package downloads require network access.
+
+The defaults are direct lab/VPN HTTP at `http://SERVER-IP:40000`, private state
+and work directories under `/var/lib/cryosparc2d`, and local sequential execution.
+The setup prompts also support an existing HTTPS reverse proxy and custom
+directories. Slurm remains an administrator setting in the Web UI.
+
+```bash
+cryosparc2d-service configure
+cryosparc2d-service status
+cryosparc2d-service start
+cryosparc2d-service stop
+cryosparc2d-service restart
+cryosparc2d-service enable
+cryosparc2d-service disable
+```
+
+`configure` displays current values; Enter keeps a value and `-` clears an
+optional public URL. It validates a candidate before replacing the saved file.
+An active service is briefly stopped and restarted; a stopped service stays
+stopped. Failed activation restores the previous settings. Concurrent setup
+sessions are refused. Queued/running jobs block changes to the CryoSPARC URL,
+state/work directories and computation environment; pending credential cleanup
+also blocks these changes. The queue is checked again after dispatch stops.
+
+A state directory is permanently associated with its CryoSPARC instance and
+work directory. To change either association after work finishes, choose a new
+empty state directory; existing history and results stay in the old location.
+This command does not migrate or delete history. Existing custom directories
+must already be private (0700), owned by `cryosparc2d`, and accessible to that
+account; setup does not recursively change ownership of existing data.
+
+`stop` and `restart` leave already-started workers running; the restarted
+dispatcher observes their completion records. `enable`/`disable` only change
+boot startup and do not start/stop the current service. The sudo deployer receives
+a validated sudoers rule for only these six systemctl operations on this service;
+installation and configuration still require administrative sudo authorization.
+
+Managed files:
+
+| Location | Purpose |
+| --- | --- |
+| `/opt/cryosparc2d` | Root-managed Python, application and installation state |
+| `/etc/cryosparc2d/web.json` | Current settings, root-owned and service-group readable |
+| `/etc/cryosparc2d/web.previous.json` | Settings before the most recent change |
+| `/etc/systemd/system/cryosparc2d.service` | Persistent service |
+| `/etc/sudoers.d/cryosparc2d` | Narrow deployer service-control authorization |
+| `/usr/local/bin/cryosparc2d-service` | System-wide service management command |
+
+If setup fails, correct the reported problem and rerun `cryosparc2d-service install`;
+an incomplete installation can resume. An already completed installation is left
+unchanged. Inspect startup failures with `cryosparc2d-service status` and
+`sudo journalctl -u cryosparc2d.service`. Installation does not provision a domain,
+certificate, firewall rule or Slurm cluster.
+
+The service intentionally uses `KillMode=process` with its dedicated account so
+workers can finish after Web shutdown; see the
+[systemd kill documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html).
+Dependency installation uses uv's locked, explicit-extra synchronization; see
+[uv syncing](https://docs.astral.sh/uv/concepts/projects/sync/).
+
+### Manual foreground session
+
 Use Python 3.10–3.12. From the repository directory, activate your existing
 Conda environment or create one, then install the web extra:
 
@@ -210,8 +290,9 @@ WantedBy=multi-user.target
 ```
 
 `KillMode=process` allows an existing local worker to finish when the web process
-restarts. Use it only with this dedicated service account. This document does not
-install services, modify Slurm, open a firewall or provision certificates.
+restarts. Use it only with this dedicated service account. This is a manual
+example; the managed installer generates its own unit. Neither setup modifies
+Slurm, opens a firewall or provisions certificates.
 
 ## Credentials and lifecycle
 

@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cryosparc-2d-projection"
 version = "0.1.0"
 description = "Map CryoSPARC 2D classes to 3D viewing directions."
+readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "cryosparc-tools~=5.0.0",
@@ -25,7 +26,8 @@ dev = [
 ]
 
 [project.scripts]
-cryosparc2d = "cryosparc_2d_projection.web:main"
+cryosparc2d = "cryosparc_2d_projection.web_launcher:main"
+cryosparc2d-service = "cryosparc_2d_projection.service_cli:main"
 cryosparc2d-projection = "cryosparc_2d_projection.cli:main"
 cryosparc2d-506-convention-fixture = "cryosparc_2d_projection.live_fixture:main"
 cryosparc2d-axis-search = "cryosparc_2d_projection.axis_cli:main"

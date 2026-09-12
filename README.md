@@ -105,24 +105,67 @@ This uses CryoSPARC's supported External Job API. Running the command creates a 
 
 ## Install
 
-With [uv](https://docs.astral.sh/uv/):
+The release workflow builds packages for installation through **uv/PyPI** or
+**Conda/Miniforge**. These commands become available after the first publication;
+`YOUR_CHANNEL` is the Anaconda account configured by the maintainer.
 
 ```bash
-uv sync
+uv tool install --python 3.12 cryosparc-2d-projection
 ```
 
-Or in the already-created conda environment:
+Or, with Miniforge/Conda (Linux x86-64 or Apple Silicon macOS, Python 3.12):
 
 ```bash
-python -m pip install -e '.[dev]'
-python -m pytest -q
+conda create -n cryosparc2d --override-channels -c YOUR_CHANNEL -c conda-forge cryosparc-2d-projection
+conda activate cryosparc2d
 ```
+
+In an existing Python 3.12 Conda environment:
+
+```bash
+conda install --override-channels -c YOUR_CHANNEL -c conda-forge cryosparc-2d-projection
+```
+
+Neither method requires sudo. Check installation with
+`cryosparc2d-projection --help` or `cryosparc2d-axis-search --help`.
+For updates, use `uv tool upgrade cryosparc-2d-projection` or
+`conda update -c YOUR_CHANNEL -c conda-forge cryosparc-2d-projection`.
+The `cryosparc2d-update` command is intended for editable Git installations.
+
+Maintainers: [configure packaging and publishing](docs/package-release.md).
+For development from a checkout, use `uv sync --extra web` and
+`uv run --extra web pytest -q`. The optional `install.sh` remains available for
+checkout-based deployment; it is not required to install a published package.
 
 ## Multi-user web launcher (Abyss)
 
 The web launcher adds individual CryoSPARC sign-in, private run histories,
 responsive deep-ocean styling, and a persistent sequential queue with local or
-Slurm execution profiles. In your activated Conda environment, install and start:
+Slurm execution profiles. On a **Linux server running systemd**, add all GUI
+dependencies, guided configuration and the persistent service with one command:
+
+```bash
+cryosparc2d-service install --source /absolute/path/to/checkout
+```
+
+Managed service setup currently requires a source checkout and uv in PATH,
+even when the CLI was installed from a published package. This step requests sudo, creates a dedicated `cryosparc2d` account and a managed
+runtime under `/opt/cryosparc2d`, validates your settings, and starts the service
+with boot startup enabled. Your personal CLI installation remains available.
+The default browser address is `http://YOUR-SERVER-IP:40000` on your lab network
+or VPN. Slurm and an existing HTTPS proxy are optional advanced settings.
+
+```bash
+cryosparc2d-service configure  # Change settings; Enter keeps each current value
+cryosparc2d-service status
+cryosparc2d-service stop       # Stop now; running computations can finish
+cryosparc2d-service start
+cryosparc2d-service restart
+cryosparc2d-service disable    # Disable boot startup; does not stop the service
+cryosparc2d-service enable    # Enable boot startup; does not start the service
+```
+
+Alternatively, for a foreground Web session in your own Python environment:
 
 ```bash
 python -m pip install -e '.[web]'
@@ -141,8 +184,8 @@ For direct HTTP access on a trusted lab network, add
 Credentials are unencrypted in direct HTTP mode; restrict network access to
 trusted lab/VPN clients.
 See [deployment, authentication and Slurm setup](docs/web-launcher.md) and the
-[example configuration](docs/web-config.example.json). Real deployment needs
-the lab's HTTPS endpoint, a dedicated submission account and shared compute paths.
+[example configuration](docs/web-config.example.json). Slurm deployments also
+need a submission account with scheduler access and shared compute paths.
 
 The Tk/ttk desktop launcher and `cryosparc2d-gui` command have been retired.
 Use the web launcher or the workflow CLI commands instead; reinstall the package
@@ -168,16 +211,20 @@ input jobs.
 
 ## Update an editable installation
 
-After installing the project from its Git checkout into an activated Conda
-environment, update it from anywhere with:
+After installing from a Git checkout with `install.sh` or pip, update that
+installation from anywhere with:
 
 ```bash
 cryosparc2d-update
 ```
 
-The command fast-forwards the current branch from its configured upstream,
-reinstalls the project and development test dependency with the same Python
-interpreter, and runs the complete test suite. It refuses to run from a
+The command fast-forwards the current branch from its configured upstream.
+For uv environments it synchronizes the lockfile, preserves CLI/Web and existing
+development dependencies, and checks the CLI entry points without requiring pip.
+It runs the test suite if development dependencies were already installed.
+Legacy pip/Conda installations retain their reinstall-and-test behavior.
+The separate managed GUI service under `/opt/cryosparc2d` is not updated or
+restarted by this command. It refuses to run from a
 detached HEAD, without an upstream, or while tracked files have local changes.
 Untracked files are preserved unless Git reports that an incoming file would
 overwrite one. A failed pull, installation, or test run returns a non-zero
