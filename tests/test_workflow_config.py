@@ -5,6 +5,21 @@ import pytest
 from cryosparc_2d_projection.workflow_config import build_arguments, default_values
 
 
+def test_orientation_launcher_exposes_validated_image_fallback_settings():
+    from cryosparc_2d_projection.workflow_config import prepare_workflow
+
+    values = default_values("orientation")
+    values.update(url="http://localhost:39000", project="P1", workspace="W1",
+                  select_job="J1", refinement_job="J2", fallback_quality="fine",
+                  fallback_device="cpu", fallback_batch_size="4")
+    prepared = prepare_workflow("orientation", build_arguments("orientation", values))
+    config = prepared.options["fallback_config"]
+    assert config.quality == "fine"
+    assert config.device == "cpu"
+    assert config.batch_size == 4
+    assert prepared.options["volume_source"].job_uid == "J2"
+
+
 def configured(workflow):
     values = default_values(workflow)
     values.update(url='https://cryo.example', project='P1', workspace='W2', select_job='J3')

@@ -41,6 +41,8 @@ def validate_profiles(profiles, *, defer_slurm=False):
             value = profile.get(key, 1)
             if type(value) is not int or not 1 <= value <= 1000000:
                 raise ValueError(f'Invalid profile resource: {key}')
+        if type(profile.get('gpus', 0)) is not int or not 0 <= profile.get('gpus', 0) <= 1:
+            raise ValueError('Invalid profile resource: gpus (use 0 or 1)')
         for key in ('partition', 'account', 'qos'):
             if key in profile and not re.fullmatch(r'[a-zA-Z0-9_.-]{1,100}', profile[key]):
                 raise ValueError(f'Invalid profile: {key}')
@@ -64,6 +66,8 @@ class SlurmBackend:
                 '--cpus-per-task=' + str(self.profile.get('cpus', 1)),
                 '--mem=' + str(self.profile.get('memory_mb', 4096)) + 'M',
                 '--time=' + str(self.profile.get('time_minutes', 60))]
+        if self.profile.get('gpus', 0):
+            argv.append('--gpus=' + str(self.profile['gpus']))
         for key in ('partition', 'account', 'qos'):
             if self.profile.get(key):
                 argv.append('--' + key + '=' + self.profile[key])

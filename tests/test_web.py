@@ -424,7 +424,8 @@ def test_schema_preserves_physical_units_and_domain_labels(app):
     assert fields['render_grid_size']['label'] == 'Surface sampling grid size'
 
 
-def test_slurm_can_be_configured_in_browser_only_by_unlocked_admin(tmp_path, monkeypatch):
+@pytest.mark.parametrize('gpus', [None, 1])
+def test_slurm_can_be_configured_in_browser_only_by_unlocked_admin(tmp_path, monkeypatch, gpus):
     import shutil
     monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/' + name)
     config = {'data_dir': str(tmp_path / 'state'), 'cryosparc_url': 'https://cryo.example',
@@ -437,11 +438,15 @@ def test_slurm_can_be_configured_in_browser_only_by_unlocked_admin(tmp_path, mon
     settings = {'work_dir': str(shared), 'python': sys.executable, 'partition': 'cpu',
                 'account': '', 'qos': '', 'cpus': 4, 'memory_mb': 16384,
                 'time_minutes': 120, 'shared_confirmed': True}
+    if gpus is not None:
+        settings['gpus'] = gpus
     assert ordinary.post('/api/admin/slurm', json=settings, headers=other).status_code == 403
     assert admin.post('/api/admin/unlock', json={'token': 'wrong'}, headers=headers).status_code == 403
     assert admin.post('/api/admin/unlock', json={'token': 'admin-secret'}, headers=headers).status_code == 200
     assert admin.post('/api/admin/slurm', json=settings, headers=headers).status_code == 200
     assert admin.get('/api/admin/slurm').json['settings']['cpus'] == 4
+    if gpus is not None:
+        assert admin.get('/api/admin/slurm').json['settings']['gpus'] == gpus
     body = dict(submission(), profile='slurm')
     result = ordinary.post('/api/jobs', json=body, headers=other)
     assert result.status_code == 201

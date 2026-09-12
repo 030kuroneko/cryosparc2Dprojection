@@ -239,7 +239,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
         return jsonify(settings=dict(work_dir=profile.get('work_dir', ''),
             python=profile.get('python', sys.executable), partition=profile.get('partition', ''),
             account=profile.get('account', ''), qos=profile.get('qos', ''),
-            cpus=profile.get('cpus', 4), memory_mb=profile.get('memory_mb', 16384),
+            cpus=profile.get('cpus', 4), gpus=profile.get('gpus', 0), memory_mb=profile.get('memory_mb', 16384),
             time_minutes=profile.get('time_minutes', 120), shared_confirmed=False))
 
     @app.post('/api/admin/slurm')
@@ -248,7 +248,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
         expected = {'work_dir', 'python', 'partition', 'account', 'qos', 'cpus',
                     'memory_mb', 'time_minutes', 'shared_confirmed'}
         try:
-            if not isinstance(body, dict) or set(body) != expected:
+            if not isinstance(body, dict) or set(body) not in (expected, expected | {'gpus'}):
                 raise ValueError('Provide the complete Slurm settings form.')
             if body['shared_confirmed'] is not True:
                 raise ValueError('Confirm that this directory and Python are accessible at the same paths on compute nodes.')

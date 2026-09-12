@@ -187,7 +187,8 @@ def _render_to_staging(request, classes, directory):
                 "class_id": item.class_id,
                 "class_number": item.class_number,
                 "particle_count": item.orientation.particle_count,
-                "view_direction": item.orientation.view_direction.tolist(),
+                "view_direction": (item.orientation.view_direction.tolist()
+                                   if item.orientation.view_direction is not None else None),
                 "angular_spread_degrees": item.orientation.angular_spread_degrees,
             }
             for item in classes
@@ -319,6 +320,9 @@ def _render_to_staging(request, classes, directory):
             if key not in {"band_limited_score_valid", "band_limited_invalid_reason"}
         }
         class_entry["camera"] = {
+            "orientation_method": item.camera.orientation_method,
+            "search_metadata": item.camera.search_metadata,
+            "alternative_orientations": list(item.camera.alternative_orientations),
             "rotation_matrix": item.camera.rotation_matrix.tolist(),
             "quaternion_xyzw": item.camera.quaternion_xyzw.tolist(),
             "view_direction": item.camera.view_direction.tolist(),

@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from cryosparc_2d_projection import cli, axis_cli
 from cryosparc_2d_projection.external_job_adapter import ExternalJobSource
+from cryosparc_2d_projection.image_camera import ImageCameraSearchConfig
 from cryosparc_2d_projection.axis_search import AxisSearchConfig, AxisProximityConfig
 from cryosparc_2d_projection.axis_presentation import parse_axis_rolls
 from cryosparc_2d_projection.presentation import ComparisonRenderOptions
@@ -135,6 +136,10 @@ def prepare_workflow(workflow, argv=None):
             refinement_source=ExternalJobSource(args.refinement_job, args.refinement_particles_output),
             volume_source=ExternalJobSource(args.refinement_job, args.volume_output),
             interactive_class_numbers=args.classes or (),
+            fallback_config=ImageCameraSearchConfig(
+                quality=args.fallback_quality, device=args.fallback_device,
+                batch_size=args.fallback_batch_size,
+            ),
             diagnostic_score_config=BandLimitedScoreConfig(
                 low_resolution_A=args.diagnostic_low_resolution_A,
                 high_resolution_A=args.diagnostic_high_resolution_A,

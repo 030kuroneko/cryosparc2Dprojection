@@ -14,8 +14,8 @@ class ClassPoses:
 @dataclass(frozen=True)
 class ClassOrientation:
     particle_count: int
-    view_direction: np.ndarray
-    angular_spread_degrees: float
+    view_direction: np.ndarray | None
+    angular_spread_degrees: float | None
 
 
 def match_class_poses(select_2d, refinement):
@@ -51,11 +51,11 @@ def match_class_poses(select_2d, refinement):
     }
 
 
-def analyze_class_orientations(select_2d, refinement, *, symmetry="C1"):
+def analyze_class_orientations(select_2d, refinement, *, symmetry="C1", allow_empty=False):
     """Calculate a representative viewing direction for every matched 2D class."""
     symmetry = SupportedSymmetry.parse(symmetry)
     matched = match_class_poses(select_2d, refinement)
-    if not matched:
+    if not matched and not allow_empty:
         raise ValueError("No overlapping particle UIDs between Select 2D and refinement")
     orientations = {}
 

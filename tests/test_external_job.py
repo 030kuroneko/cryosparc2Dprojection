@@ -21,6 +21,56 @@ from PIL import Image
 from tests.external_job_backend import InMemoryExternalJobBackend
 
 
+@pytest.mark.parametrize("has_overlap", [True, False])
+def test_orientation_falls_back_per_class_and_preserves_all_selected_classes(tmp_path, has_overlap):
+    project, job = _native_grid_external_job(tmp_path, class_size=9)
+    _, volume = mrc.read(tmp_path / "matching_volume.mrc")
+    mrc.write(tmp_path / "templates.mrcs", np.stack([volume.sum(axis=0)] * 2), 1.5)
+    job.datasets["select_2d_templates"] = np.array(
+        [("templates.mrcs", 0, 1.5), ("templates.mrcs", 1, 1.5)],
+        dtype=job.datasets["select_2d_templates"].dtype,
+    )
+    job.datasets["select_2d_particles"] = np.array(
+        [(101 if has_overlap else 999, 0, 0.), (102, 1, 0.)],
+        dtype=job.datasets["select_2d_particles"].dtype,
+    )
+    run_external_orientation_job(
+        project, 'W1', SourceOutput('J1', 'particles'), SourceOutput('J1', 'templates'),
+        SourceOutput('J2', 'particles'), SourceOutput('J2', 'volume'),
+        render_options=ClassRenderOptions(image_size=64, grid_size=8),
+    )
+
+    classes = json.loads((tmp_path / "class_orientations.json").read_text())["classes"]
+    assert [item["class_number"] for item in classes] == [1, 2]
+    expected_first = "particle_pose_local_search" if has_overlap else "image_global_search"
+    assert classes[0]["camera"]["orientation_method"] == expected_first
+    fallback = classes[1]
+    assert fallback["camera"]["orientation_method"] == "image_global_search"
+    assert fallback["angular_spread_degrees"] is None
+    assert fallback["view_direction"] is None
+    assert fallback["particle_count"] == 0
+    assert fallback["camera"]["search_metadata"]["device"] == "cpu"
+    assert len(job.saved["matched_projections"]["blob/idx"]) == 2
+
+
+@pytest.mark.parametrize("field", ["alignments3D/pose", "alignments2D/pose"])
+def test_nonfinite_particle_pose_uses_image_fallback(tmp_path, field):
+    project, job = _native_grid_external_job(tmp_path, class_size=9)
+    dataset = "refinement_particles" if field.startswith("alignments3D") else "select_2d_particles"
+    job.datasets[dataset][field][:] = np.nan
+    _, volume = mrc.read(tmp_path / "matching_volume.mrc")
+    mrc.write(tmp_path / "templates.mrcs", volume.sum(axis=0)[None], 1.5)
+    run_external_orientation_job(
+        project, 'W1', SourceOutput('J1', 'particles'), SourceOutput('J1', 'templates'),
+        SourceOutput('J2', 'particles'), SourceOutput('J2', 'volume'),
+        render_options=ClassRenderOptions(image_size=64, grid_size=8),
+    )
+    result = json.loads((tmp_path / "class_orientations.json").read_text())["classes"][0]
+    assert result["camera"]["orientation_method"] == "image_global_search"
+    assert result["particle_count"] == 0
+    assert result["angular_spread_degrees"] is None
+
+
 def test_orientation_exposes_readable_progress_until_publication_finishes(tmp_path):
     project, job = _native_grid_external_job(tmp_path, class_size=8)
     messages = []

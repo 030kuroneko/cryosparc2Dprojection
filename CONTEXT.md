@@ -1,6 +1,6 @@
 # 2D Class to 3D Camera Orientation
 
-This context describes how a CryoSPARC 2D class is related to a reproducible view of a refined 3D density map.
+This context describes how a CryoSPARC 2D class is related to a reproducible view of a 3D reference density map.
 
 ## Language
 
@@ -85,7 +85,7 @@ A warning that a mirrored projection fits substantially better than every non-mi
 _Avoid_: Automatic mirror correction
 
 **Matching Map**:
-The unsharpened refined density map used to determine and score a Class Camera Orientation.
+The 3D reference density map used to determine and score a Class Camera Orientation. It need not have associated refinement particle poses.
 _Avoid_: Rendering map, sharpened map
 
 **Rendering Map**:
@@ -107,6 +107,10 @@ _Avoid_: Euler angles alone
 **Orientation Group**:
 A Class Camera Orientation together with every camera related to it by the map's declared symmetry. Members of one group are not competing orientation answers.
 _Avoid_: Individual symmetry mate
+
+**Image-Only Camera Search**:
+The estimation of a Class Camera Orientation by comparing a Class Average with projections of the Matching Map, without particle-pose evidence. Its uncertainty concerns competing Orientation Groups; particle-derived angular spread is unavailable.
+_Avoid_: Refinement particle pose, unique true orientation
 
 **Projection Shift**:
 The two-dimensional translation that aligns a Matched Projection to its class average. It is reported separately and does not change the Class Camera Orientation.

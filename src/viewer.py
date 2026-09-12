@@ -139,8 +139,10 @@ def create_class_preview_figure(
             interpolation="hanning",
         )
         class_axis.set_title(
-            f"Class {class_id + 1} | n={orientation.particle_count}\n"
-            f"spread={orientation.angular_spread_degrees:.1f}°"
+            (f"Class {class_id + 1} | image-only fallback\npose spread unavailable"
+             if orientation.angular_spread_degrees is None else
+             f"Class {class_id + 1} | n={orientation.particle_count}\n"
+             f"spread={orientation.angular_spread_degrees:.1f}°")
         )
         class_axis.axis("off")
         if comparison_options.auto_crop_2d and framing is not None:
@@ -155,6 +157,10 @@ def create_class_preview_figure(
         projection_title = (
             f"Matched | search raw={cameras[class_id].match_score:.3f}"
         )
+        if getattr(cameras[class_id], "orientation_method", "particle_pose_local_search") == "image_global_search":
+            projection_title = f"Matched | search NCC={cameras[class_id].match_score:.3f}"
+            if cameras[class_id].match_confidence == "low":
+                projection_title += "\nLow confidence"
         if diagnostic_scores is not None:
             diagnostic = diagnostic_scores[class_id]
             if diagnostic.valid:

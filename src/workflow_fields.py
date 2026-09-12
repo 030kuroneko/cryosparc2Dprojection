@@ -2,7 +2,7 @@
 
 TITLES = {'orientation': 'Class Orientation', 'axis': 'Axis Search'}
 DESCRIPTIONS = {
-    'orientation': 'Match selected 2D classes to a refined map using particle poses.\n'
+    'orientation': 'Match selected 2D classes to a refined map; search images when particle poses are missing.\n'
                    'Results: Class Average · Matched Projection · Camera View Render',
     'axis': 'Rank class averages against axes of the selected point-group symmetry.\n'
             'No particle-pose overlap required. Near-Axis Refinement is optional.',
@@ -17,6 +17,8 @@ LABELS = {
     'volume_job': 'Volume job UID', 'classes': 'Interactive class numbers',
     'axis_family': 'Axis families', 'top_n': 'Top classes per axis',
     'refine_near_axis': 'Enable Near-Axis Refinement', 'axis_roll': 'Display rolls (family=degrees; …)',
+    'fallback_quality': 'Fallback search quality', 'fallback_device': 'Fallback device',
+    'fallback_batch_size': 'Fallback batch size',
 }
 
 # Each field has a brief inline hint and optional expanded help.
@@ -24,7 +26,10 @@ FIELD_HELP = {
     'project': ('Enter the CryoSPARC project ID, e.g. P12.', 'Use the project containing your source jobs. All source job IDs are resolved within this project.'),
     'workspace': ('Enter the destination workspace ID, e.g. W3.', 'The new External Job and its results will be created in this workspace within the selected project.'),
     'select_job': ('Enter your Select 2D Classes job ID, e.g. J123.', 'Use the job containing the selected 2D classes to analyze. Copy its J-number from CryoSPARC; enter only the ID, not the job title or URL.'),
-    'refinement_job': ('Enter your NU or Local Refinement job ID, e.g. J124.', 'Use the refinement job providing particle poses and the reference volume. Its particles must overlap with the selected 2D particles so their orientations can be matched. Enter only the J-number.'),
+    'refinement_job': ('Enter your NU or Local Refinement job ID, e.g. J124.', 'Use the refinement job providing particle poses and the reference volume. Classes without usable overlapping particle poses are matched directly to the volume by image-only search. Enter only the J-number.'),
+    'fallback_quality': ('Use standard, or fine for a denser and slower search.', 'Only applies to classes without usable refinement poses. Searches all view directions and refines multiple candidates; equivalent symmetry views count as one orientation group.'),
+    'fallback_device': ('Auto uses an available NVIDIA GPU, otherwise CPU.', 'CUDA requires CuPy and a compatible driver on the executing worker. GPU memory exhaustion reduces batch size before restarting on CPU; other computation errors are reported. CPU forces reproducible CPU execution; cuda requires a GPU at startup.'),
+    'fallback_batch_size': ('Process 16 projections at a time by default.', 'Larger batches may improve GPU throughput but use more memory. GPU out-of-memory errors reduce this value automatically.'),
     'volume_job': ('Enter the job providing your reference volume, e.g. J125.', 'Use a job with the volume to compare against your selected classes. Axis Search compares images and does not require overlapping particle IDs.'),
     'classes': ('Optional: enter class numbers such as 3,8,12.', 'Use one-based class numbers shown in the Select 2D Classes job. All selected classes are matched; this list controls which also receive rotated volumes for interactive inspection. Leave blank to skip these additional volumes.'),
     'axis_family': ('Leave blank to search all axes of the selected symmetry.', 'Enter comma-separated families, such as 2fold,3fold for I or 4fold for O. Some symmetries have distinct directions with suffixes, such as 3fold and 3fold-2 for C3.'),

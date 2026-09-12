@@ -185,6 +185,11 @@
                 /></label>
 <div class="hint-row"><small class="hint" id="slurm-cpus-hint">Request 4 CPUs per job by default.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for CPUs" aria-expanded="false" aria-controls="slurm-cpus-help">?</button><span class="help-panel" id="slurm-cpus-help" hidden>Enter a positive integer. More CPUs reserve more resources but may not accelerate every stage.</span></span></div></div>
                 <div class="field"><label
+                  >GPUs<input id="slurm-gpus" aria-describedby="slurm-gpus-hint"
+                    type="number" min="0" max="1" value="0"
+                /></label>
+<div class="hint-row"><small class="hint" id="slurm-gpus-hint">Use 1 to reserve a GPU for image-only search; 0 keeps CPU jobs.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for GPUs" aria-expanded="false" aria-controls="slurm-gpus-help">?</button><span class="help-panel" id="slurm-gpus-help" hidden>Choose a GPU partition and install compatible CuPy on the compute-node Python environment. The search uses one NVIDIA GPU.</span></span></div></div>
+                <div class="field"><label
                   >Memory (MiB)<input
                     id="slurm-memory_mb" aria-describedby="slurm-memory_mb-hint"
                     type="number"

@@ -51,6 +51,12 @@ def build_parser():
         help="Select 2D class-average template output",
     )
     parser.add_argument("--refinement-job", required=True, help="NU or Local job UID")
+    parser.add_argument("--fallback-quality", choices=("standard", "fine"), default="standard",
+                        help="Image-only search quality for classes missing usable refinement poses")
+    parser.add_argument("--fallback-device", choices=("auto", "cpu", "cuda"), default="auto",
+                        help="Image-only search device (auto: CUDA when available, otherwise CPU)")
+    parser.add_argument("--fallback-batch-size", type=_integer_at_least(1), default=16,
+                        help="Projection batch size; reduced automatically on GPU memory exhaustion")
     parser.add_argument(
         "--refinement-particles-output",
         default="particles",

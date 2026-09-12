@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from scipy.ndimage import shift as shift_image
@@ -24,6 +24,9 @@ class ClassCameraResult:
     score_margin: float | None = None
     match_confidence: str = "low"
     search_evaluation_count: int = 0
+    orientation_method: str = "particle_pose_local_search"
+    search_metadata: dict = field(default_factory=dict)
+    alternative_orientations: tuple = ()
 
 
 def solve_class_camera_from_particle_poses(

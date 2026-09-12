@@ -1,7 +1,8 @@
 import numpy as np
 
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
-from cryosparc_2d_projection.class_poses import analyze_class_orientations
+from cryosparc_2d_projection.class_poses import ClassOrientation, analyze_class_orientations
+from cryosparc_2d_projection.image_camera import ImageCameraSearchConfig, solve_class_cameras_from_images
 from cryosparc_2d_projection.class_result_rendering import (
     ClassResultInput,
     ClassResultRenderingRequest,
@@ -11,9 +12,12 @@ from cryosparc_2d_projection.class_result_rendering import (
 from cryosparc_2d_projection.external_job_adapter import (
     CryoSPARCExternalJobAdapter,
     ExternalJobSource,
+    ParticleAlignments2D,
+    ParticleAlignments3D,
     TARGET_CRYOSPARC_VERSION,
 )
 from cryosparc_2d_projection.matching_grid import (
+    MatchingGrid,
     prepare_matching_grid,
     validate_native_class_grids,
 )
@@ -45,12 +49,14 @@ def run_external_orientation_job(
     comparison_options=None,
     warning_callback=None,
     status_callback=None,
+    fallback_config=None,
 ):
     """Create and run the CryoSPARC External Job for class orientation analysis."""
     symmetry = SupportedSymmetry.parse(symmetry).value
     render_options = render_options or ClassRenderOptions()
     diagnostic_score_config = diagnostic_score_config or BandLimitedScoreConfig()
     comparison_options = comparison_options or ComparisonRenderOptions()
+    fallback_config = fallback_config or ImageCameraSearchConfig()
     adapter = CryoSPARCExternalJobAdapter(
         project,
         workspace_uid,
@@ -96,15 +102,29 @@ def run_external_orientation_job(
         refinement_particles = adapter.read_3d_particle_alignments(
             "refinement_particles"
         )
+        valid_2d = np.isfinite(select_particles.poses)
+        if valid_2d.ndim > 1:
+            valid_2d = valid_2d.all(axis=tuple(range(1, valid_2d.ndim)))
+        valid_3d = np.isfinite(refinement_particles.poses).all(axis=1)
+        select_particles = ParticleAlignments2D(
+            select_particles.uids[valid_2d], select_particles.class_ids[valid_2d],
+            select_particles.poses[valid_2d],
+        )
+        refinement_particles = ParticleAlignments3D(
+            refinement_particles.uids[valid_3d], refinement_particles.poses[valid_3d],
+        )
         progress.start("Analyzing particle orientations")
         orientations = analyze_class_orientations(
-            select_particles, refinement_particles, symmetry=symmetry
+            select_particles, refinement_particles, symmetry=symmetry, allow_empty=True
         )
         progress.start("Reading class averages and maps")
         class_averages = adapter.read_template_stack(
             "select_2d_templates"
         ).class_averages
-        validate_native_class_grids(class_averages, orientations)
+        validate_native_class_grids(class_averages, class_averages)
+        missing_classes = set(class_averages) - set(orientations)
+        for class_id in missing_classes:
+            orientations[class_id] = ClassOrientation(0, None, None)
         volume_input = adapter.read_volume(
             "refinement_volume", rendering_map=render_options.map_name
         )
@@ -118,6 +138,33 @@ def run_external_orientation_job(
 
         camera_results = {}
         result_inputs = []
+        matching_grids = {}
+        volume_grids = {}
+        for class_id, template in class_averages.items():
+            grid = prepare_matching_grid(
+                template.image, volume_input.matching_map,
+                class_pixel_size=template.pixel_size_A,
+                volume_pixel_size=volume_input.matching_pixel_size_A,
+                max_size=128,
+            )
+            # Keep one map per physical grid, rather than one volume per class.
+            shared_volume = volume_grids.setdefault((grid.volume.shape, grid.pixel_size), grid.volume)
+            matching_grids[class_id] = MatchingGrid(grid.class_average, shared_volume, grid.pixel_size)
+        if missing_classes:
+            adapter.log(f"Image-only fallback for {len(missing_classes)} classes without usable particle poses.")
+            progress.start("Global image-only orientation search")
+            def warn_search(message):
+                adapter.log(message)
+                if warning_callback is not None:
+                    warning_callback(message)
+
+            camera_results.update(solve_class_cameras_from_images(
+                {key: matching_grids[key].class_average for key in sorted(missing_classes)},
+                matching_grids[min(missing_classes)].volume,
+                symmetry=symmetry, config=fallback_config,
+                warning_callback=warn_search,
+                progress_callback=lambda message: adapter.log_detail(message, status_callback),
+            ))
         progress.start("Finding class orientations", total=len(orientations), unit="classes")
         for completed, class_id in enumerate(sorted(orientations)):
             progress.advance(completed, detail=f"Processing Class {class_id + 1}")
@@ -125,20 +172,16 @@ def run_external_orientation_job(
                 select_particles, refinement_particles, class_id
             )
             template = class_averages[class_id]
-            matching_grid = prepare_matching_grid(
-                template.image,
-                volume_input.matching_map,
-                class_pixel_size=template.pixel_size_A,
-                volume_pixel_size=volume_input.matching_pixel_size_A,
-                max_size=128,
-            )
-            camera = solve_class_camera_from_particle_poses(
-                matching_grid.class_average,
-                matching_grid.volume,
-                refinement_poses=refinement_poses,
-                alignment_2d_poses=alignment_2d_poses,
-                symmetry=symmetry,
-            )
+            matching_grid = matching_grids[class_id]
+            camera = camera_results.get(class_id)
+            if camera is None:
+                camera = solve_class_camera_from_particle_poses(
+                    matching_grid.class_average,
+                    matching_grid.volume,
+                    refinement_poses=refinement_poses,
+                    alignment_2d_poses=alignment_2d_poses,
+                    symmetry=symmetry,
+                )
             camera_results[class_id] = camera
             result_inputs.append(
                 ClassResultInput(
@@ -260,7 +303,8 @@ def run_external_orientation_job(
                 dpi=comparison_options.dpi,
             )
         adapter.log(
-            f"Analyzed {len(orientations)} 2D classes using overlapping particle UIDs."
+            f"Analyzed {len(orientations)} 2D classes; "
+            f"{len(missing_classes)} used image-only fallback."
         )
 
     return adapter.job

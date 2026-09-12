@@ -1,0 +1,24 @@
+{
+  "schema": "image-camera-local-validation/v1",
+  "host": "arm64",
+  "os": "Darwin",
+  "input": "synthetic asymmetric Gaussian volume; one identity-camera class",
+  "cuda_validation": "not_run_no_cuda",
+  "live_cryosparc_validation": "not_run",
+  "runs": [
+    {
+      "quality": "standard",
+      "seconds": 1.651,
+      "score": 0.9999999999999996,
+      "evaluations": 5368,
+      "box_size": 17
+    },
+    {
+      "quality": "fine",
+      "seconds": 4.853,
+      "score": 0.9999999999999996,
+      "evaluations": 18016,
+      "box_size": 17
+    }
+  ]
+}

@@ -77,12 +77,13 @@ completed scientific outputs. The unsharpened `map` always controls ranking;
 `map_sharp`, DPI, page size, render size/grid, Surface Level, and manual axis
 roll affect presentation only.
 
-Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement.
+Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement, with image-only fallback for classes without usable overlapping poses.
 
 The job:
 
 1. matches Select 2D and refinement particles by CryoSPARC `uid`;
-2. uses only particles present in both datasets;
+2. uses valid particle poses present in both datasets; classes without any usable
+   overlap are matched directly to the same reference map by global image search;
 3. converts `alignments3D/pose` Rodrigues vectors using the same convention as pyem;
 4. folds symmetry-equivalent directions before averaging;
 5. folds complete symmetry-equivalent camera rotations before averaging;
@@ -92,6 +93,48 @@ The job:
 8. extracts a solid triangular isosurface from the Rendering Map;
 9. displays the class average, Matched Projection, and Camera View Render in
    pages of ten classes.
+
+### Image-only fallback
+
+Keep selecting the same **Select 2D Classes + Refinement** jobs. No Auto Select
+job is required. Classes with usable overlapping poses keep the existing local
+search, including its low-score behavior; the other selected classes receive
+global coarse search followed by local refinement. Symmetry-equivalent cameras
+are grouped before comparing alternatives. Uncertain results remain visible;
+particle-derived spread is reported as unavailable.
+
+Optional CLI flags (also exposed in the web launcher's advanced settings):
+
+```text
+--fallback-quality standard     # or fine (denser search, larger bounded grid)
+--fallback-device auto          # cpu, or cuda to require a GPU at startup
+--fallback-batch-size 16
+```
+
+`auto` uses an available NVIDIA GPU and otherwise reports CPU execution. GPU
+out-of-memory errors halve the batch down to one, then restart the search on CPU;
+other computation errors fail visibly. The algorithm uses one GPU and preserves
+the original class numbering and native rendered outputs. Search metadata records
+the device, settings, scores, competing groups and timing. Confidence is a
+heuristic, not a probability or evidence that every possible orientation was
+exhaustively evaluated.
+
+On a Linux worker with CUDA 12, the optional `gpu` extra installs CuPy:
+
+```bash
+uv sync --extra web --extra gpu
+```
+
+For another CUDA installation, install the appropriate CuPy package in the
+executing Python environment following the [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html).
+Do not install multiple CuPy distributions in the same environment. In Slurm
+administrator settings, select a GPU partition and set **GPUs** to **1**; the
+default **0** keeps existing CPU resource requests. GPU availability is determined
+on the executing worker, not the browser computer or the CryoSPARC master.
+
+Synthetic tests and local CPU checks are provided. Live CryoSPARC validation and
+real CUDA accuracy/throughput measurements remain pending; see the
+[fallback research record](docs/research/reference-based-class-orientation.md).
 
 ## Compatibility
 

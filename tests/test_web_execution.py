@@ -8,6 +8,22 @@ import pytest
 from cryosparc_2d_projection.web_execution import SlurmBackend
 
 
+def test_slurm_requests_gpu_resources_only_when_configured(tmp_path):
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '471\n', '')
+    SlurmBackend({'gpus': 1}, run=run).submit(tmp_path)
+    assert '--gpus=1' in calls[0]
+
+
+@pytest.mark.parametrize('value', [-1, True, '1'])
+def test_slurm_rejects_invalid_gpu_resource_count(value):
+    from cryosparc_2d_projection.web_execution import validate_profiles
+    with pytest.raises(ValueError, match='gpus'):
+        validate_profiles({'cluster': {'backend': 'slurm', 'gpus': value}})
+
+
 def test_slurm_submission_returns_job_id_and_waits_for_accounting(tmp_path):
     commands = []
     replies = iter(['471;cluster\n', 'PENDING\n', '', '471|COMPLETED|0:0\n'])
