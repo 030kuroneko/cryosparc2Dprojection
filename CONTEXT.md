@@ -151,3 +151,11 @@ _Avoid_: CryoSPARC External Job, Axis Search Run, credential cleanup
 **Web Job Credential Cleanup**:
 The removal of the CryoSPARC credentials retained for one Web Job. Pending cleanup is a visible, retryable condition that survives launcher restarts without repeating the scientific workflow or changing its execution outcome.
 _Avoid_: Workflow failure, computation retry, CryoSPARC account deletion
+
+**Slurm Lane**:
+A named, administrator-defined execution choice for Web Jobs on the shared Slurm cluster, with a fixed resource allocation available to all launcher users. A Slurm Lane is distinct from a CryoSPARC lane or a Slurm partition; multiple Slurm Lanes may use the same partition.
+_Avoid_: CryoSPARC lane, Slurm partition, user-defined resource request
+
+**Slurm Submission Template**:
+An administrator-authored script with placeholders filled from a Slurm Lane and a Web Job to produce that job's cluster submission script.
+_Avoid_: Executed job script, CryoSPARC cluster configuration, user-supplied command

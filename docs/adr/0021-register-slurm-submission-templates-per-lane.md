@@ -1,0 +1,3 @@
+# Register Slurm Submission Templates per lane
+
+Combine administrator-managed Slurm Lanes with external, variable-substituted batch-script templates, while keeping scheduler submission and state tracking in the application's Slurm adapter. Administrators explicitly reload, preview and apply template changes; submitted Web Jobs preserve their original template version and resource settings so later file edits cannot silently change queued work. This supports cluster-specific directives and environment setup without introducing a separate submission/status protocol for every lane; see the [design interview record](../slurm-lanes-design.md) for the remaining decisions.
