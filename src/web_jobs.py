@@ -79,20 +79,43 @@ class JobStore:
             for name in ('cleanup_attempts', 'cleanup_after'):
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} NUMERIC NOT NULL DEFAULT 0')
+            db.execute('CREATE TABLE IF NOT EXISTS execution_lanes '
+                       '(id TEXT PRIMARY KEY, settings_json TEXT NOT NULL, revision INTEGER NOT NULL)')
         self.database.chmod(0o600)
+
+    def _profiles_in(self, db):
+        profiles = {name: dict(value, revision=0) for name, value in self.config.get(
+            'profiles', {'local': {'backend': 'local', 'label': 'Local · sequential'}}).items()}
+        old = db.execute("SELECT value FROM metadata WHERE key='slurm_profile'").fetchone()
+        if old:
+            profiles['slurm'] = dict(json.loads(old[0]), revision=0)
+        for row in db.execute('SELECT * FROM execution_lanes ORDER BY rowid'):
+            profiles[row['id']] = dict(json.loads(row['settings_json']), revision=row['revision'])
+        for profile in profiles.values():
+            if profile.get('backend') == 'local' and profile.get('label') == 'Local · sequential':
+                profile['label'] = 'Local'
+        return profiles
 
     @property
     def profiles(self):
-        profiles = dict(self.config.get('profiles', {'local': {'backend': 'local', 'label': 'Local · sequential'}}))
         with self.connect() as db:
-            row = db.execute("SELECT value FROM metadata WHERE key='slurm_profile'").fetchone()
-        if row:
-            profiles['slurm'] = json.loads(row[0])
-        return profiles
+            return self._profiles_in(db)
+
+    def save_lane(self, name, profile, *, expected_revision):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT revision FROM execution_lanes WHERE id=?', (name,)).fetchone()
+            revision = row['revision'] if row else 0
+            if revision != expected_revision:
+                raise ValueError('Lane changed since preview. Reload its settings and preview again.')
+            value = {key: value for key, value in profile.items() if key not in ('id', 'revision')}
+            db.execute('INSERT OR REPLACE INTO execution_lanes VALUES (?,?,?)',
+                       (name, json.dumps(value), revision + 1))
+        return dict(value, id=name, revision=revision + 1)
 
     def save_slurm(self, profile):
-        with self.connect() as db:
-            db.execute("INSERT OR REPLACE INTO metadata VALUES ('slurm_profile', ?)", (json.dumps(profile),))
+        existing = self.profiles.get('slurm', {})
+        self.save_lane('slurm', dict(existing, **profile), expected_revision=existing.get('revision', 0))
 
     def directory(self, job_id):
         with self.connect() as db:
@@ -162,12 +185,19 @@ class JobStore:
                 if prior['workflow'] != workflow or prior['profile'] != profile or json.loads(prior['values_json']) != validated:
                     raise ValueError('Request ID already used with different settings')
                 return self.public(prior)
+            current_lane = self._profiles_in(db).get(profile)
+            if current_lane is None or not current_lane.get('enabled', True):
+                raise ValueError('This execution lane is disabled. Choose an available lane.')
+            profiles[profile] = current_lane
             active = db.execute('SELECT owner FROM jobs WHERE state NOT IN (?,?,?)', TERMINAL).fetchall()
             if len(active) >= 32 or sum(r['owner'] == identity['owner'] for r in active) >= 8:
                 raise ValueError('Queue limit reached. Wait for a job to finish.')
             job_id = uuid.uuid4().hex
             execution = dict(profiles[profile])
             execution.setdefault('python', sys.executable)
+            execution['lane_id'] = profile
+            execution['job_context'] = dict(project_uid=validated.get('project', ''),
+                                            workspace_uid=validated.get('workspace', ''), workflow=workflow)
             directory = Path(execution.get('work_dir', self.root)) / job_id
             directory.mkdir(mode=0o700)
             auth_dir = directory / 'config' / 'cryosparc-tools'
@@ -191,21 +221,25 @@ class JobStore:
                 ('queued', *TERMINAL))]
 
     def claim_next(self):
-        """Durably claim one queued job only when no execution is outstanding."""
+        """Atomically claim the oldest job whose execution lane has capacity."""
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute('SELECT 1 FROM jobs WHERE state NOT IN (?,?,?,?) LIMIT 1',
-                          ('queued', *TERMINAL)).fetchone():
-                return None
-            row = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
-            if row is None:
-                return None
-            db.execute("UPDATE jobs SET state='submitting' WHERE id=?", (row['id'],))
-        profile = json.loads(row['execution_json']) if row['execution_json'] else self.profiles.get(row['profile'])
-        if profile is None:
-            self.update(row['id'], 'failed', 'Execution profile was removed. Submit again with a current profile.')
-            return None
-        return {'id': row['id'], 'directory': self.directory(row['id']), 'profile': profile}
+            active = {row['profile']: row['count'] for row in db.execute(
+                'SELECT profile,COUNT(*) AS count FROM jobs WHERE state NOT IN (?,?,?,?) GROUP BY profile',
+                ('queued', *TERMINAL))}
+            profiles = self._profiles_in(db)
+            for row in db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created"):
+                current = profiles.get(row['profile'], {})
+                if active.get(row['profile'], 0) >= current.get('max_concurrent', 1):
+                    continue
+                profile = json.loads(row['execution_json']) if row['execution_json'] else current
+                if not profile:
+                    continue
+                # Disabled lanes still drain work accepted before disabling.
+                db.execute("UPDATE jobs SET state='submitting' WHERE id=?", (row['id'],))
+                directory = Path(row['directory']) if row['directory'] else self.root / row['id']
+                return {'id': row['id'], 'directory': directory, 'profile': profile}
+        return None
 
     def _complete_from_worker(self, job_id):
         marker = self.directory(job_id) / 'result.json'

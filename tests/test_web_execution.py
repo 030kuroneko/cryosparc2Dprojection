@@ -82,25 +82,28 @@ def test_scheduler_failure_cannot_be_reported_as_success(state, exit_code):
     assert SlurmBackend({}, run=run).status('471')[0] == 'failed'
 
 
-def test_uncertain_submission_blocks_further_dispatch_instead_of_resubmitting(tmp_path, monkeypatch):
+def test_uncertain_submission_consumes_only_its_lane_capacity(tmp_path, monkeypatch):
     from cryosparc_2d_projection.web_jobs import JobStore
     from cryosparc_2d_projection.web_execution import Dispatcher
     from cryosparc_2d_projection.workflow_config import default_values
     import uuid
     binary = tmp_path / 'sbatch'
-    binary.write_text('#!/bin/sh\nprintf "unexpected scheduler response\\n"\n')
+    binary.write_text('#!' + sys.executable + '\nimport sys\nprint("471" if "--partition=other" in sys.argv else "unexpected response")\n')
     binary.chmod(0o700)
     monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
     store = JobStore({'data_dir': str(tmp_path / 'data'), 'cryosparc_url': 'https://cryo.example',
-                      'profiles': {'cluster': {'backend': 'slurm'}}})
+                      'profiles': {'cluster': {'backend': 'slurm'}, 'other': {'backend': 'slurm', 'partition': 'other'}}})
     values = default_values('axis')
     values.pop('url')
     values.update(project='P1', workspace='W2', select_job='J3', volume_job='J4')
     identity = {'owner': 'alice', 'email': 'alice@example.org', 'token': 'private'}
     first, second = [store.submit(identity, {'workflow': 'axis', 'profile': 'cluster', 'values': values,
                                            'request_id': str(uuid.uuid4())}) for _ in range(2)]
+    third = store.submit(identity, {'workflow': 'axis', 'profile': 'other', 'values': values,
+                                    'request_id': str(uuid.uuid4())})
     dispatcher = Dispatcher(store)
     dispatcher.tick()
+    assert store.get('alice', third['id'])['state'] == 'pending'
     dispatcher.tick()
     assert store.get('alice', first['id'])['state'] == 'unknown'
     assert store.get('alice', second['id'])['state'] == 'queued'
@@ -132,3 +135,25 @@ def test_heartbeat_does_not_split_another_threads_redaction_boundary():
     log.write('token\n')
     log.finish()
     assert out.getvalue() == 'Still reading input data\nToken: [REDACTED]\n'
+
+
+def test_template_preserves_custom_directive_order_and_quotes_shell_arguments(tmp_path):
+    binary = tmp_path / "python with a 'quote"
+    binary.write_text('#!/bin/sh\nprintf "%s" "$MODULE_VALUE" > "$4/observed"\n')
+    binary.chmod(0o700)
+    job = tmp_path / 'job with spaces'
+    job.mkdir()
+    profile = dict(python=str(binary), template_text='''#!/bin/bash
+#SBATCH --constraint=first
+#SBATCH --constraint=last
+export MODULE_VALUE={{ module_value | quote }}
+exec {{ run_cmd }}
+''', variables={'module_value': 'literal $(touch unintended-file)'})
+    preview = SlurmBackend(profile).preview(job)
+    assert preview['script'].index('--constraint=first') < preview['script'].index('--constraint=last')
+    script = job / 'submit.sh'
+    script.write_text(preview['script'])
+    result = subprocess.run(['bash', str(script)], cwd=job, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert (job / 'observed').read_text() == 'literal $(touch unintended-file)'
+    assert not (job / 'unintended-file').exists()

@@ -39,6 +39,7 @@ async function api(path, method = "GET", body) {
 }
 function showLogin() {
   state.generation++;
+  document.dispatchEvent(new Event("launcher-session-reset"));
   $("workspace").hidden = true;
   $("login-screen").hidden = false;
   state.schema = null;
@@ -90,12 +91,6 @@ async function enter(email) {
   $("profile").innerHTML = state.schema.profiles
     .map((p) => `<option value="${escape(p.id)}">${escape(p.label)}</option>`)
     .join("");
-  if (!state.schema.profiles.some((p) => p.id === "slurm")) {
-    $("profile").insertAdjacentHTML(
-      "beforeend",
-      '<option value="slurm-setup">Slurm · configure in browser</option>',
-    );
-  }
   $("login-screen").hidden = true;
   $("workspace").hidden = false;
   renderForm();
@@ -219,68 +214,16 @@ function profileNote() {
     (p) => p.id === $("profile").value,
   );
   const isSlurm = !profile || profile.backend === "slurm";
-  $("slurm-panel").hidden = !isSlurm;
-  $("slurm-fields").disabled = !isSlurm || $("slurm-fields").hidden;
+  $("slurm-panel").hidden = false;
   $("profile-note").textContent = !profile
-    ? "Ask the service administrator to configure Slurm below before submitting."
+    ? "Ask the administrator to enable an execution lane below."
     : isSlurm
-      ? "Submitted to Slurm after the current run. Resources are set by your administrator."
-      : "Runs on the server, one job at a time. You can close this browser after submitting.";
+      ? "Submitted when this lane has capacity. Resources and concurrency are set by your administrator."
+      : "Runs on the server within the Local concurrency limit. You can close this browser after submitting.";
 }
 $("profile").addEventListener("change", () => {
   state.requestId = null;
   profileNote();
-});
-$("unlock-admin").addEventListener("click", async () => {
-  const generation = state.generation;
-  try {
-    await api("/api/admin/unlock", "POST", { token: $("admin-key").value });
-    const result = await api("/api/admin/slurm");
-    if (generation !== state.generation) return;
-    for (const [key, value] of Object.entries(result.settings)) {
-      const input = $("slurm-" + key);
-      if (input.type === "checkbox") input.checked = value;
-      else input.value = value;
-    }
-    $("slurm-fields").hidden = false;
-    profileNote();
-    $("slurm-status").textContent =
-      "Administrator settings unlocked for this session.";
-  } catch (error) {
-    if (generation === state.generation)
-      $("slurm-status").textContent = error.message;
-  } finally {
-    $("admin-key").value = "";
-  }
-});
-$("save-slurm").addEventListener("click", async () => {
-  const generation = state.generation;
-  const settings = {};
-  for (const input of document.querySelectorAll("#slurm-fields input")) {
-    settings[input.id.slice(6)] =
-      input.type === "checkbox"
-        ? input.checked
-        : input.type === "number"
-          ? Number(input.value)
-          : input.value.trim();
-  }
-  try {
-    await api("/api/admin/slurm", "POST", settings);
-    const schema = await api("/api/schema");
-    if (generation !== state.generation) return;
-    state.schema = schema;
-    $("profile").innerHTML = schema.profiles
-      .map((p) => `<option value="${escape(p.id)}">${escape(p.label)}</option>`)
-      .join("");
-    $("profile").value = "slurm";
-    state.requestId = null;
-    profileNote();
-    $("slurm-status").textContent =
-      "Saved. New Slurm jobs will use these settings.";
-  } catch (error) {
-    if (generation === state.generation)
-      $("slurm-status").textContent = error.message;
-  }
 });
 $("workflow-form").addEventListener("submit", async (event) => {
   event.preventDefault();

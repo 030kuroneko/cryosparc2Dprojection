@@ -1,6 +1,6 @@
 # Multiple administrator-managed Slurm Lanes
 
-Status: design interview in progress; implementation has not been approved.
+Status: implemented; local automated and browser verification complete.
 
 ## Confirmed requirements
 
@@ -16,13 +16,25 @@ Status: design interview in progress; implementation has not been approved.
 - Use `{{ variable }}` placeholders. Provide built-in resource/job variables and administrator-defined variables, such as GPU model or module name; ordinary users continue to select a lane only.
 - Templates may contain complete batch scripts, including `#SBATCH` directives and environment initialization. The application retains responsibility for `sbatch` submission and `squeue`/`sacct` state tracking.
 - Administrators explicitly reload and apply external template changes through the web interface, with a preview before activation. Existing jobs preserve their original template version.
+- Lane resource values entered in the web interface are authoritative when a template contains conflicting hard-coded resource directives. Templates should reference the corresponding variables.
+- Local execution and Slurm Lanes may run concurrently. Administrators can configure the Local concurrent-job limit in the web interface, defaulting to one; Local and each Slurm Lane account for their own slots.
+- An uncertain submission is not automatically resent and continues to occupy its lane's slot. Other lanes may proceed within their own limits.
+- Lowering a concurrent-job limit does not terminate existing jobs. It delays further dispatch until the active count falls below the new limit.
+- Existing queued jobs in a disabled lane continue under their original submission settings. Disabling prevents new submissions, rather than pausing previously accepted work.
 
-## Decisions still open
+## Setup and compatibility
 
-- Resource authority when a template hard-codes values that conflict with the lane's web settings.
-- Configuration ownership and compatibility with existing execution profiles: the user has not identified any existing Slurm configuration file. An import must not be assumed necessary. Proposed normal flow: an empty lane list populated through web administration. Compatibility handling would apply only if an existing launcher Slurm profile is actually present; it would not discover lanes from Slurm or CryoSPARC.
-- Dispatch edge cases: uncertain submissions and lowering concurrency limits. The accepted rule that existing jobs finish with their original settings also covers jobs already queued in a subsequently disabled lane.
-- Local execution alongside concurrent Slurm Lanes.
+The normal flow starts with an empty Slurm Lane list, populated through web administration and linked to administrator-authored external templates. No pre-existing Slurm configuration file or manual import step is required. Existing configuration-file profiles remain configuration-driven until saved through web administration, which then takes precedence for that ID. Preserve existing launcher profiles and job references if present; this compatibility handling does not discover lanes from Slurm or CryoSPARC.
+
+## Acceptance scenarios
+
+- An administrator creates, duplicates, edits, disables and re-enables multiple lanes through the web interface; ordinary users select available lanes without changing resources, templates or limits.
+- Rendering a template fills built-in and administrator-defined variables, supports complete environment setup, and preserves the lane's authoritative resource allocation.
+- External file edits take effect only after explicit reload and activation. Previously submitted jobs retain their original template and resource snapshot across launcher restarts.
+- Local and different Slurm Lanes run concurrently, with administrator-configurable limits enforced independently. Pending Slurm jobs and uncertain submissions continue to consume their lane's slots.
+- Lowered limits and disabled lanes preserve already accepted work; new submissions to a disabled lane are rejected.
+- Existing GPU fallback reporting, per-user job isolation, administrator authentication and credential cleanup behavior remain intact.
+- A fresh installation needs no legacy Slurm settings; an upgraded installation preserves existing lane references and job history.
 
 ## Existing behavior informing the design
 
@@ -37,3 +49,9 @@ The JSON passed through `--config` is optional. Service installation may generat
 CryoSPARC uses a parameterized `cluster_script.sh` plus cluster command configuration. Registering the configuration stores it in the database; job generation reads that registered content rather than live-reloading the original files. This is a reference model, not yet a decision to reproduce its entire API. See the [official cluster integration examples](https://guide.cryosparc.com/setup-configuration-and-management/how-to-download-install-and-configure/cryosparc-cluster-integration-script-examples) and [installation guide](https://guide.cryosparc.com/setup-configuration-and-management/how-to-download-install-and-configure/downloading-and-installing-cryosparc).
 
 CCP-EM Pipeliner also supports an external submission template with placeholders and queue-related job options; Doppio exposes configurable extra queue variables. These sources establish the template/UI pattern, not a named-lane management contract: [Pipeliner queue submission](https://ccpem-pipeliner.readthedocs.io/en/latest/source/getting_started.html#submitting-jobs-to-a-queue), [Doppio custom queue variables](https://www.ccpem.ac.uk/docs/doppio/user_guide.html#custom-queue-submission-variables).
+
+## Validation boundaries
+
+The accepted workflows are verified through the authenticated Web API, the public dispatcher/store lifecycle and generated Slurm commands/scripts at the OS boundary. Browser checks cover lane publication, cloning, template preview/activation and Local capacity. Tests use isolated temporary storage and fake scheduler executables; they do not submit real cluster or CryoSPARC jobs.
+
+On 2026-09-12, `uv run pytest -q` completed with 555 passed and one hardware-dependent CUDA test skipped. The existing image-camera test emitted a gimbal-lock warning. Browser verification covered Local capacity changes, Slurm lane creation and duplication, template preview/activation, lane selection and preview invalidation after edits. Real Slurm/CryoSPARC execution and CUDA hardware verification remain pending.

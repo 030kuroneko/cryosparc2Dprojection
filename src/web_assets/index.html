@@ -9,6 +9,7 @@
     <script src="/assets/help.js" defer></script>
     <script src="/assets/progress.js" defer></script>
     <script src="/assets/app.js" defer></script>
+    <script src="/assets/lanes.js" defer></script>
   </head>
   <body>
     <div class="theme-toolbar" role="group" aria-label="Appearance">
@@ -103,8 +104,8 @@
               <section class="card execution">
                 <p class="eyebrow">EXECUTION</p>
                 <h2>Where your run happens</h2>
-                <label>Execution profile<select id="profile" aria-describedby="profile-hint"></select></label>
-<div class="hint-row"><small class="hint" id="profile-hint">Choose where the workflow runs.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Execution profile" aria-expanded="false" aria-controls="profile-help">?</button><span class="help-panel" id="profile-help" hidden>Local runs on the launcher server. Slurm submits to the configured cluster. Results are published to the selected CryoSPARC workspace.</span></span></div>
+                <label>Execution lane<select id="profile" aria-describedby="profile-hint"></select></label>
+<div class="hint-row"><small class="hint" id="profile-hint">Choose where the workflow runs.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Execution lane" aria-expanded="false" aria-controls="profile-help">?</button><span class="help-panel" id="profile-help" hidden>Local runs on the launcher server. Slurm lanes submit to the configured cluster with administrator-defined resources and concurrency. Results are published to the selected CryoSPARC workspace.</span></span></div>
                 <p id="profile-note" class="hint"></p>
                 <div class="divider"></div>
                 <p class="eyebrow">WHAT YOU’LL GET</p>
@@ -132,13 +133,22 @@
               </div>
             </aside>
           </div>
+          <div class="action-bar">
+            <p id="form-status" role="status">
+              <span class="status-dot"></span>Ready to configure
+            </p>
+            <button id="submit-job" type="submit" class="primary">
+              Run workflow →
+            </button>
+          </div>
+          <p id="form-error" class="error" role="alert"></p>
+        </form>
           <div id="slurm-panel" class="card" hidden>
             <p class="hint">
-              Slurm runs under the service account. An administrator configures
-              resources once; other users only select Slurm.
+              Administrators publish shared execution lanes. Each Slurm lane and Local have their own concurrent-job limit.
             </p>
             <details id="slurm-admin">
-              <summary>Administrator · Slurm setup</summary>
+              <summary>Administrator · Execution lanes</summary>
               <p class="hint">
                 Use the private administrator key file shown in the server
                 terminal. Never share this key with other users.
@@ -149,9 +159,23 @@
                   type="password"
                   autocomplete="off"
               /></label>
-<div class="hint-row"><small class="hint" id="admin-key-hint">Enter the launcher administrator key to edit Slurm settings.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Administrator key" aria-expanded="false" aria-controls="admin-key-help">?</button><span class="help-panel" id="admin-key-help" hidden>Use the private key provided by the launcher administrator. This is separate from your CryoSPARC password.</span></span></div>
+<div class="hint-row"><small class="hint" id="admin-key-hint">Enter the launcher administrator key to manage execution lanes.</small><span class="field-help"><button type="button" class="help-button" aria-label="Help for Administrator key" aria-expanded="false" aria-controls="admin-key-help">?</button><span class="help-panel" id="admin-key-help" hidden>Use the private key provided by the launcher administrator. This is separate from your CryoSPARC password.</span></span></div>
               <button id="unlock-admin" type="button">Unlock settings</button>
+              <div id="lane-manager" hidden>
+                <div class="lane-toolbar">
+                  <label>Saved lane<select id="lane-select"></select></label>
+                  <button id="new-lane" type="button">New Slurm lane</button>
+                  <button id="duplicate-lane" type="button">Duplicate lane</button>
+                </div>
+              </div>
               <fieldset id="slurm-fields" disabled hidden>
+                <div class="field"><label>Lane ID<input id="lane-id" maxlength="40" placeholder="slurm-gpu" /></label>
+                  <small class="hint">Stable identifier: letters, numbers, hyphens or underscores.</small></div>
+                <div class="field"><label>Display name<input id="slurm-label" maxlength="100" placeholder="GPU lane" /></label></div>
+                <div class="field"><label>Concurrent jobs<input id="slurm-max_concurrent" type="number" min="1" max="32" value="1" /></label>
+                  <small class="hint">Pending Slurm jobs count toward this limit. Lowering it does not stop existing jobs.</small></div>
+                <div class="check-row"><input id="slurm-enabled" type="checkbox" checked /><label for="slurm-enabled">Enabled for new submissions</label></div>
+                <div id="slurm-resource-fields" class="lane-grid">
                 <div class="field"><label
                   >Shared working directory<input
                     id="slurm-work_dir" aria-describedby="slurm-work_dir-hint"
@@ -212,27 +236,29 @@
                     the same paths on compute nodes.</label
                   >
                 </div>
-                <button id="save-slurm" type="button">
-                  Save Slurm settings
-                </button>
-                <p class="hint">
-                  Changes apply only to new jobs. Saving does not submit a job
-                  or verify compute-node connectivity.
-                </p>
+                <div class="field lane-wide"><label>External template path<input id="slurm-template_path" placeholder="/shared/cryosparc2d/templates/gpu.sh" /></label>
+                  <small class="hint">Absolute path on the launcher server. Leave blank to use the built-in template. File edits take effect only after reload, preview and apply.</small></div>
+                <div class="field lane-wide"><label>Custom variables (JSON)<textarea id="slurm-variables" rows="3" spellcheck="false">{}</textarea></label>
+                  <small class="hint">For example: {"module_name": "cuda/12"}. Use {{ module_name }} in the template, or {{ module_name | quote }} for a shell argument.</small></div>
+                <p id="template-version" class="hint lane-wide"></p>
+                <details class="lane-wide"><summary>Template variables and example</summary>
+                  <p id="template-variables" class="hint"></p>
+                  <pre id="template-example" tabindex="0"></pre>
+                </details>
+                </div>
+                <div class="lane-actions lane-wide">
+                  <button id="reload-template" type="button">Reload template &amp; preview</button>
+                  <button id="preview-lane" type="button">Preview settings</button>
+                  <button id="save-slurm" type="button" disabled>Apply preview</button>
+                </div>
+                <div id="lane-preview-panel" class="lane-wide" hidden>
+                  <p class="hint">Preview only; no job is submitted. Lane resources override conflicting template directives. Existing jobs retain their original settings.</p>
+                  <pre id="lane-preview" tabindex="0"></pre>
+                </div>
               </fieldset>
             </details>
             <p id="slurm-status" class="hint" role="status"></p>
           </div>
-          <div class="action-bar">
-            <p id="form-status" role="status">
-              <span class="status-dot"></span>Ready to configure
-            </p>
-            <button id="submit-job" type="submit" class="primary">
-              Run workflow →
-            </button>
-          </div>
-          <p id="form-error" class="error" role="alert"></p>
-        </form>
         <section class="activity">
           <div class="section-title">
             <h2><span class="number">02</span>Your runs</h2>

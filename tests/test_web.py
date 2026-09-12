@@ -322,7 +322,7 @@ def test_ui_schema_covers_cli_fields_and_server_only_profiles(app):
         fields = response.json['workflows'][name]['fields']
         assert {f['key'] for f in fields} == {
             key for key in default_values(name) if key != 'url' and not key.endswith('_output')}
-    assert response.json['profiles'] == [{'id': 'local', 'label': 'Local · sequential', 'backend': 'local'}]
+    assert response.json['profiles'] == [{'id': 'local', 'label': 'Local', 'backend': 'local'}]
     assert client.get('/').status_code == 200
     assert client.get('/assets/app.js').status_code == 200
 

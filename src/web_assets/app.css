@@ -272,6 +272,7 @@ main {
   min-width: 0;
 }
 #slurm-panel input:not([type="checkbox"]),
+#slurm-panel select,
 .field input,
 .field select,
 .connection input,
@@ -1061,3 +1062,17 @@ button.help-button { flex: 0 0 19px; }
 #slurm-fields > .field:has(#slurm-python) { grid-column: 1 / -1; }
 #slurm-panel button.help-button { margin-top: 0; }
 .field .hint-row > .hint { margin-top: 0; }
+
+/* Lane administration follows the launcher's existing card and field layout. */
+.lane-toolbar, .lane-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.lane-toolbar { margin: 18px 0; }
+.lane-toolbar label { flex: 1 1 240px; }
+.lane-toolbar select { width: 100%; }
+.lane-wide, #slurm-resource-fields { grid-column: 1 / -1; min-width: 0; }
+.lane-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+#slurm-resource-fields > .field:has(#slurm-work_dir),
+#slurm-resource-fields > .field:has(#slurm-python) { grid-column: 1 / -1; }
+#slurm-variables { box-sizing: border-box; width: 100%; min-height: 90px; padding: 10px; resize: vertical; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; font-family: monospace; }
+#lane-preview, #template-example { max-height: 420px; overflow: auto; padding: 16px; border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+#lane-manager[hidden], #slurm-resource-fields[hidden], #lane-preview-panel[hidden] { display: none; }
+@media (max-width: 680px) { .lane-grid { grid-template-columns: minmax(0, 1fr); } }

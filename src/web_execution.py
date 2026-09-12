@@ -41,6 +41,10 @@ def validate_profiles(profiles, *, defer_slurm=False):
             value = profile.get(key, 1)
             if type(value) is not int or not 1 <= value <= 1000000:
                 raise ValueError(f'Invalid profile resource: {key}')
+        if type(profile.get('max_concurrent', 1)) is not int or not 1 <= profile.get('max_concurrent', 1) <= 32:
+            raise ValueError('Invalid lane concurrency limit (use 1 to 32)')
+        if type(profile.get('enabled', True)) is not bool:
+            raise ValueError('Invalid lane enabled setting')
         if type(profile.get('gpus', 0)) is not int or not 0 <= profile.get('gpus', 0) <= 1:
             raise ValueError('Invalid profile resource: gpus (use 0 or 1)')
         for key in ('partition', 'account', 'qos'):
@@ -52,12 +56,10 @@ class SlurmBackend:
     def __init__(self, profile, *, run=subprocess.run):
         self.profile, self.run = profile, run
 
-    def submit(self, directory):
+    def preview(self, directory):
+        from cryosparc_2d_projection.slurm_templates import render_submission
         directory = Path(directory)
         script = directory / 'submit.sh'
-        content = '#!/bin/sh\numask 077\nexec ' + shlex.join(worker_command(self.profile, directory)) + '\n'
-        with open(os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
-            out.write(content)
         argv = ['sbatch', '--parsable', '--no-requeue', '--export=NONE',
                 '--job-name=projection-' + directory.name, '--chdir=' + str(directory),
                 '--output=' + str(directory / 'bootstrap.log'),
@@ -71,7 +73,16 @@ class SlurmBackend:
         for key in ('partition', 'account', 'qos'):
             if self.profile.get(key):
                 argv.append('--' + key + '=' + self.profile[key])
-        result = self.run([*argv, str(script)], capture_output=True, text=True,
+        content = render_submission(self.profile, directory,
+                                    shlex.join(worker_command(self.profile, directory)), argv[2:])
+        return {'script': content, 'command': [*argv, str(script)]}
+
+    def submit(self, directory):
+        prepared = self.preview(directory)
+        script = Path(directory) / 'submit.sh'
+        with open(os.open(script, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as out:
+            out.write(prepared['script'])
+        result = self.run(prepared['command'], capture_output=True, text=True,
                           timeout=30, env=worker_environment(), check=True)
         job_id = result.stdout.strip().split(';')[0]
         if not re.fullmatch(r'[1-9][0-9]*', job_id):
@@ -109,7 +120,7 @@ class SlurmBackend:
 
 
 class Dispatcher:
-    """One active computation across both backends. Browser sessions are independent."""
+    """Durable dispatch with independent capacity for each execution lane."""
     def __init__(self, store):
         self.store = store
         validate_profiles(store.profiles, defer_slurm=True)
@@ -153,26 +164,27 @@ class Dispatcher:
                 process = self.processes.pop(job['id'], None)
                 if process:
                     process.wait(timeout=10)
-        job = self.store.claim_next()
-        if job is None:
-            return
-        job_id, directory, profile = job['id'], job['directory'], job['profile']
-        try:
-            if profile['backend'] == 'slurm':
-                scheduler_id = SlurmBackend(profile).submit(directory)
-                self.store.update(job_id, 'pending', scheduler_id=scheduler_id)
-            else:
-                # The worker owns scientific logging and its durable completion marker.
-                with (directory / 'bootstrap.log').open('ab') as out:
-                    process = subprocess.Popen(worker_command(profile, directory),
-                                               stdout=out, stderr=out, cwd=directory,
-                                               env=worker_environment(profile.get('cpus', 1)), start_new_session=True)
-                self.processes[job_id] = process
-                self.store.update(job_id, 'running')
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            self.store.update(job_id, 'failed', 'Submission failed. Check the configured executable and scheduler access.')
-        except Exception:
-            self.store.update(job_id, 'unknown', 'Submission outcome uncertain. Administrator reconciliation required; not resubmitting.')
+        for _ in range(32):
+            job = self.store.claim_next()
+            if job is None:
+                return
+            job_id, directory, profile = job['id'], job['directory'], job['profile']
+            try:
+                if profile['backend'] == 'slurm':
+                    scheduler_id = SlurmBackend(profile).submit(directory)
+                    self.store.update(job_id, 'pending', scheduler_id=scheduler_id)
+                else:
+                    # The worker owns scientific logging and its durable completion marker.
+                    with (directory / 'bootstrap.log').open('ab') as out:
+                        process = subprocess.Popen(worker_command(profile, directory),
+                                                   stdout=out, stderr=out, cwd=directory,
+                                                   env=worker_environment(profile.get('cpus', 1)), start_new_session=True)
+                    self.processes[job_id] = process
+                    self.store.update(job_id, 'running')
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                self.store.update(job_id, 'failed', 'Submission failed. Check the configured executable and scheduler access.')
+            except Exception:
+                self.store.update(job_id, 'unknown', 'Submission outcome uncertain. Administrator reconciliation required; not resubmitting.')
 
     def _observe(self, job):
         if job['scheduler_id']:

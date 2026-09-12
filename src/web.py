@@ -233,6 +233,9 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
             g.identity['admin'] = True
         return jsonify(ok=True)
 
+    from cryosparc_2d_projection.web_lanes import register_lane_routes
+    register_lane_routes(app, store)
+
     @app.get('/api/admin/slurm')
     def slurm_settings():
         profile = store.profiles.get('slurm', {})
@@ -322,7 +325,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
                                'choices': list(field.choices)})
             workflows[name] = {'title': TITLES[name], 'description': DESCRIPTIONS[name], 'fields': fields}
         profiles = [{'id': key, 'label': value.get('label', key), 'backend': value['backend']}
-                    for key, value in store.profiles.items()]
+                    for key, value in store.profiles.items() if value.get('enabled', True)]
         return jsonify(workflows=workflows, profiles=profiles)
 
     @app.get('/')
@@ -331,7 +334,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     @app.get('/assets/<name>')
     def asset(name):
-        if name not in ('app.js', 'app.css', 'theme.js', 'help.js', 'progress.js'):
+        if name not in ('app.js', 'app.css', 'theme.js', 'help.js', 'progress.js', 'lanes.js'):
             return jsonify(error='Not found'), 404
         return send_from_directory(Path(__file__).parent / 'web_assets', name)
 

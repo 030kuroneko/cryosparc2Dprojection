@@ -183,8 +183,10 @@ checkout-based deployment; it is not required to install a published package.
 ## Multi-user web launcher (Abyss)
 
 The web launcher adds individual CryoSPARC sign-in, private run histories,
-responsive deep-ocean styling, and a persistent sequential queue with local or
-Slurm execution profiles. On a **Linux server running systemd**, add all GUI
+responsive deep-ocean styling, and a persistent queue with independently
+configurable Local and Slurm lane concurrency. Administrators manage named lanes,
+external variable-substituted submission templates and GPU allocations in the
+web interface. On a **Linux server running systemd**, add all GUI
 dependencies, guided configuration and the persistent service with one command:
 
 ```bash

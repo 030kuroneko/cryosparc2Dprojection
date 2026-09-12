@@ -2,7 +2,7 @@
 
 The Abyss (deep-ocean) web UI supports Class Orientation and Axis Search,
 individual CryoSPARC sign-in, private job histories, versioned settings files,
-and a durable sequential queue. Closing a browser or signing out does not stop
+and a durable queue with configurable per-lane concurrency. Closing a browser or signing out does not stop
 a submitted job. The workflow CLI commands remain available; the Tk/ttk desktop launcher has been retired.
 
 The top-right Light/Dark control is available on the sign-in screen and every
@@ -178,65 +178,109 @@ browser's secure-context-only
 [`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID).
 Clipboard copying may be unavailable on HTTP; use Save settings instead.
 
-### Optional Slurm setup — entirely in the browser
+### Execution lanes and external Slurm templates
 
-1. Run the web service on a Linux host allowed to submit under the dedicated
-   service account, with `sbatch`, `squeue` and `sacct` on its PATH.
-2. Sign in, choose **Slurm · configure in browser**, and open **Administrator ·
-   Slurm setup**. The startup terminal shows the location of a private
-   `admin-token` file. The service administrator reads that file and pastes its
-   contents into **Administrator key**, then clicks **Unlock settings**.
-   This is separate from CryoSPARC authentication. Do not distribute the key;
-   it grants permission to select executable paths for the service account.
-3. Choose an existing dedicated shared working directory such as
-   `/shared/cryosparc2d/jobs`. Do **not** place it in a CryoSPARC-managed project
-   folder. It holds scripts, private job credentials and logs; scientific results
-   are still published to CryoSPARC. The example path is not created automatically
-   and is not guaranteed to be a shared mount on your cluster.
-4. Confirm the directory is owned by the service account, has permissions `700`,
-   and is readable/writable at the **same absolute path** on submission and
-   compute hosts. Keep SQLite state on the web host's local disk.
-5. **Compute-node Python** defaults to the active environment's interpreter.
-   Its environment, this package and dependencies must also exist at that exact
-   path on compute nodes. The service does not run `conda activate` inside jobs.
-6. Set CPUs, memory in MiB and time in minutes. Partition, account and QoS are
-   optional when cluster defaults are appropriate. Confirm the shared-path
-   checkbox and click **Save Slurm settings**. Saving checks local paths and
-   command availability, but cannot prove remote-node accessibility or allocation
-   permissions and does not submit a test job.
+1. Run the launcher on a Linux submission host under its dedicated service
+   account, with `sbatch`, `squeue` and `sacct` on its PATH.
+2. Sign in and open **Administrator · Execution lanes** below the workflow form.
+   Enter the private key from the startup terminal's `admin-token` file and click
+   **Unlock settings**. Administrator unlock is separate from CryoSPARC sign-in
+   and ends with the browser session or logout.
+3. Choose **New Slurm lane**. Give it a stable ID (letters, numbers, hyphens or
+   underscores) and a display name such as **GPU** or **Large memory**. Existing
+   IDs cannot be renamed; **Duplicate lane** creates a new ID with copied settings
+   and the currently registered template, even if its original file is gone.
+4. Set a dedicated shared working directory, outside CryoSPARC-managed project
+   folders. The directory must exist, be owned by the service account with mode
+   `700`, and be accessible at the same absolute path on the submission and
+   compute nodes. Keep the launcher's SQLite data directory on local disk.
+5. Set the absolute **Compute-node Python** executable and fixed CPU, GPU,
+   memory and time allocations. Partition, account and QoS may be blank for
+   cluster defaults. GPU count is 0 or 1; GPU search needs compatible CuPy in this
+   Python environment. Users select lanes without overriding these resources.
+6. Optionally enter an **External template path** on the launcher host and
+   **Custom variables (JSON)**. Select **Reload template & preview** to read that
+   file. Leaving the path blank uses the built-in template. A preview does not
+   execute the script or submit a job.
+7. Review the generated script and click **Apply preview**. New settings become
+   available to all users. Changing any field invalidates the preview. An edit by
+   another administrator requires reloading before applying stale settings.
 
-Other users simply select **Slurm** and run their workflow. Users who already had
-the page open before initial setup should reload it to see the saved profile.
-Settings persist in local SQLite state; jobs snapshot their execution resources,
-Python and directory when submitted, so later edits do not alter queued jobs.
-Administrator unlock expires with the browser session and is cleared by logout.
-Local jobs do not require valid Slurm settings. No additional Slurm launch command
-or `--slurm` flag is used. Regular users cannot edit resource limits or paths.
+No configuration file or import operation is required to create lanes. Existing
+configuration-file profiles and saved single-Slurm settings remain available;
+web-saved settings take precedence for the same ID. Users with an already-open
+page can reload to see newly published lanes. Local remains usable without Slurm.
 
-The service account must own both directories with mode `0700`. `data_dir`
-contains SQLite records and should reside on local disk; optional `work_dir`
-contains the default private per-job directories. Without `work_dir`, local
-jobs reside inside `data_dir`; browser-configured Slurm jobs use their separate
-shared directory. Job directories must be
-visible at the same absolute path on the submission and compute hosts; Slurm
-does not copy job input files. The configured filesystem must support reliable
-SQLite/POSIX locking. Run only one web service per data directory. Do not run
-multiple WSGI worker processes, multiple replicas or `flask run`.
+#### Template format
 
-Compute nodes need network access to the configured CryoSPARC API and access to
-the same scientific data paths as the CLI. The Slurm profile's Python environment
-must include this package and its dependencies. No shell activation is performed;
-use an absolute environment Python path. Nonstandard Slurm commands must be on
-the service's PATH. Slurm accounting (`sacct`) must be configured.
+Start from [slurm-template.example.sh](slurm-template.example.sh), or the built-in
+example shown in the administration panel. Templates contain complete shell
+scripts, including module loading and environment setup before `{{ run_cmd }}`.
+Only administrator-owned templates are accepted. The launcher continues to own
+submission and status tracking; it does not execute custom scheduler adapters.
+
+Supported placeholders are `{{ name }}` and `{{ name | quote }}`. The `quote`
+filter protects a single shell argument; use it for paths or custom values in
+shell commands. `run_cmd` is already a shell-quoted complete worker command and
+must appear in executable script content without another quoting filter. This
+is variable substitution, not the full Jinja language: expressions, includes,
+loops and template conditionals are not supported. Shell logic is allowed in the
+script body. Unknown variables or a missing worker command prevent activation.
+
+Built-in variables:
+
+| Purpose | Variables |
+| --- | --- |
+| Resources | `cpus`, `gpus`, `memory_mb`, `time_minutes`, `partition`, `account`, `qos` |
+| Execution | `python`, `run_cmd`, `job_dir`, `log_path`, `job_id`, `job_name`, `lane_id` |
+| Workflow | `project_uid`, `workspace_uid`, `workflow` |
+
+Custom variables are up to 32 named, single-line scalar values. Built-in names
+cannot be overridden. For example, define
+`{"module_name": "cuda/12", "gpu_model": "a100"}` and add:
 
 ```bash
-cryosparc2d --config /etc/cryosparc-projection/web.json
+#SBATCH --constraint={{ gpu_model }}
+module load {{ module_name | quote }}
+exec {{ run_cmd }}
 ```
 
-This starts Waitress, with eight HTTP threads and one independent dispatcher.
-Only one computation is active across local and Slurm profiles, including a
-Slurm job waiting for allocation. Up to 32 nonterminal jobs can be accepted,
-with at most eight per user. Job records survive restart; browser sessions do not.
+The GPU model example requires matching cluster node features. Use the lane's
+GPU count for allocation. Resource directives and aliases such as `--gres`,
+`--gpus-per-node`, `--mem-per-cpu` and `-c` are replaced by the lane's authoritative
+settings. The launcher also controls the one-node/one-task worker geometry,
+logging paths, environment export and retry behavior. Other directives retain
+their order. Put all `#SBATCH` lines before shell commands: Slurm stops reading
+directives at the first command and does not expand shell variables in them.
+See [SchedMD's sbatch documentation](https://slurm.schedmd.com/sbatch.html).
+
+Template files are limited to 32 KiB of UTF-8 text. File edits alone do not take
+effect: reload, preview and apply explicitly. Jobs snapshot the activated template,
+variables, resources, Python and working directory when submitted, preserving
+queued work across edits and restarts. The active template hash is shown in the
+interface; the generated `submit.sh` is retained in each job directory.
+
+#### Capacity and lifecycle
+
+Each Slurm lane and **Local** have an independent **Concurrent jobs** setting
+(default 1, configurable from 1 to 32). Local and different lanes can execute in
+parallel. Pending Slurm allocations and uncertain submissions consume their own
+lane's capacity; they do not block unrelated lanes. Unknown submissions are never
+automatically resent. Lowering a limit leaves existing jobs running and pauses
+further dispatch until capacity becomes available.
+
+Clear **Enabled for new submissions**, preview and apply to disable a Slurm lane.
+It disappears from users' choices, but previously accepted jobs, including queued
+ones, finish with their saved settings. Re-enable the lane to accept new work;
+there is no permanent-delete operation.
+
+The launcher still accepts at most 32 nonterminal jobs overall and eight per
+user. It uses one dispatcher and eight HTTP threads; run only one service per
+state directory, not multiple WSGI workers or replicas. Job records survive
+restart; browser sessions do not. Compute nodes need access to the configured
+CryoSPARC API and scientific data paths. Slurm does not copy job input files, and
+`sacct` accounting must be available. Preview validation checks local paths and
+commands, not remote-node accessibility, GPU readiness or allocation permissions.
 
 ## HTTPS in the lab / VPN
 
