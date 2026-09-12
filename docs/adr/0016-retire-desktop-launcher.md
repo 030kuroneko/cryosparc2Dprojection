@@ -24,3 +24,13 @@ No desktop display or Tk installation is needed. Existing desktop settings files
 are no longer consumed. Users launch the web UI or workflow CLI commands and
 reinstall the package to refresh command entry points. Scientific workflow
 behavior and web job execution are unchanged by this removal.
+
+## Shared workflow settings
+
+`workflow_config.py` prepares validated connection selectors and complete
+workflow options for both scientific CLIs and Web submission. Preparation
+finishes before creating a CryoSPARC client. The CLIs retain argument syntax
+and execution; they no longer assemble domain configuration objects separately.
+The Web schema consumes launcher field metadata rather than argparse actions.
+CLI defaults remain the source for that metadata, while Web labels and grouping
+remain in `workflow_fields.py`.

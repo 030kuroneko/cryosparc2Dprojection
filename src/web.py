@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from cryosparc_2d_projection.workflow_config import WORKFLOWS, actions, default_values, validate_url
+from cryosparc_2d_projection.workflow_config import WORKFLOWS, workflow_fields, validate_url
 from cryosparc_2d_projection.workflow_fields import BASIC, LABELS, TITLES, DESCRIPTIONS, FIELD_HELP, SYMMETRY_HELP, PLACEHOLDERS, HELP_SOURCES
 from cryosparc_2d_projection.web_jobs import JobStore
 
@@ -303,10 +303,9 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
     def schema():
         workflows = {}
         for name in WORKFLOWS:
-            defaults = default_values(name)
             fields = []
-            for action in actions(name):
-                key = action.dest
+            for field in workflow_fields(name):
+                key = field.key
                 if key == 'url' or key.endswith('_output'):
                     continue
                 group = ('connection' if key in ('project', 'workspace') else
@@ -317,10 +316,10 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
                 hint, help_text = SYMMETRY_HELP[name] if key == 'symmetry' else FIELD_HELP[key]
                 fields.append({'key': key, 'label': WEB_LABELS.get(key, label[0].upper() + label[1:]),
                                'hint': hint, 'help': help_text, 'placeholder': PLACEHOLDERS.get(key, ''),
-                               'help_url': HELP_SOURCES.get(key, ''), 'required': action.required,
-                               'default': defaults[key], 'group': group,
-                               'type': 'boolean' if isinstance(action, argparse._StoreTrueAction) else 'text',
-                               'choices': list(action.choices) if action.choices else []})
+                               'help_url': HELP_SOURCES.get(key, ''), 'required': field.required,
+                               'default': field.default, 'group': group,
+                               'type': field.type,
+                               'choices': list(field.choices)})
             workflows[name] = {'title': TITLES[name], 'description': DESCRIPTIONS[name], 'fields': fields}
         profiles = [{'id': key, 'label': value.get('label', key), 'backend': value['backend']}
                     for key, value in store.profiles.items()]

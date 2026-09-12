@@ -4,13 +4,9 @@ import argparse
 import sys
 
 from cryosparc_2d_projection.axis_external_job import run_axis_search_job
-from cryosparc_2d_projection.external_job_adapter import ExternalJobSource
 from cryosparc_2d_projection.axis_presentation import parse_axis_rolls
 from cryosparc_2d_projection.axis_registry import AxisFamilyRegistry
 from cryosparc_2d_projection.cli import parse_supported_symmetry
-from cryosparc_2d_projection.presentation import ComparisonRenderOptions
-from cryosparc_2d_projection.axis_search import AxisProximityConfig, AxisSearchConfig
-from cryosparc_2d_projection.surface_render import ClassRenderOptions
 
 
 class _AxisArgumentParser(argparse.ArgumentParser):
@@ -82,53 +78,20 @@ def build_parser():
 
 
 def main(argv=None, *, client_factory=None):
-    args = build_parser().parse_args(argv)
-    config = AxisSearchConfig(
-        low_resolution_A=args.low_resolution_A,
-        high_resolution_A=args.high_resolution_A,
-        mask_radius_fraction=args.mask_radius_fraction,
-        mask_edge_fraction=args.mask_edge_fraction,
-        roll_coarse_step_degrees=args.roll_coarse_step,
-        roll_refine_step_degrees=args.roll_refine_step,
-        shift_bound_fraction=args.shift_bound_fraction,
-        top_n=args.top_n,
-        mirror_warning_margin=args.mirror_warning_margin,
-    )
+    from cryosparc_2d_projection.workflow_config import prepare_workflow
+
+    prepared = prepare_workflow('axis', argv)
     if client_factory is None:
         from cryosparc.tools import CryoSPARC
 
         client_factory = CryoSPARC
-    client = client_factory(args.url)
+    client = client_factory(prepared.url)
     if not client.test_connection():
-        raise ConnectionError(f"Could not connect to CryoSPARC at {args.url}")
-    project = client.find_project(args.project)
+        raise ConnectionError(f"Could not connect to CryoSPARC at {prepared.url}")
+    project = client.find_project(prepared.project)
     run_axis_search_job(
         project,
-        args.workspace,
-        ExternalJobSource(args.select_job, args.select_output),
-        ExternalJobSource(args.volume_job, args.volume_output),
-        families=args.axis_family,
-        symmetry=args.symmetry,
-        config=config,
-        proximity_config=AxisProximityConfig(
-            cone_degrees=args.axis_cone_degrees,
-            coarse_step_degrees=args.tilt_coarse_step,
-            refine_step_degrees=args.tilt_refine_step,
-        ),
-        axis_rolls=parse_axis_rolls(args.axis_roll, symmetry=args.symmetry),
-        comparison_options=ComparisonRenderOptions(
-            dpi=args.comparison_dpi,
-            page_size=args.preview_page_size,
-            auto_crop_2d=args.auto_crop_2d,
-        ),
-        render_options=ClassRenderOptions(
-            surface_level=args.surface_level,
-            map_name=args.render_map,
-            background=args.render_background,
-            image_size=args.render_size,
-            grid_size=args.render_grid_size,
-        ),
-        refine_near_axis=args.refine_near_axis,
+        **prepared.options,
         status_callback=print,
         warning_callback=lambda message: print(message, file=sys.stderr),
     )

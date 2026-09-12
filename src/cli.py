@@ -2,10 +2,6 @@ import argparse
 import sys
 
 from cryosparc_2d_projection.external_job import run_external_orientation_job
-from cryosparc_2d_projection.external_job_adapter import ExternalJobSource
-from cryosparc_2d_projection.surface_render import ClassRenderOptions
-from cryosparc_2d_projection.presentation import ComparisonRenderOptions
-from cryosparc_2d_projection.scoring import BandLimitedScoreConfig
 from cryosparc_2d_projection.symmetry import SupportedSymmetry
 
 
@@ -152,52 +148,21 @@ def build_parser():
 
 
 def main(argv=None, *, client_factory=None):
-    args = build_parser().parse_args(argv)
+    from cryosparc_2d_projection.workflow_config import prepare_workflow
 
+    prepared = prepare_workflow('orientation', argv)
     if client_factory is None:
         from cryosparc.tools import CryoSPARC
 
         client_factory = CryoSPARC
-
-    client = client_factory(args.url)
+    client = client_factory(prepared.url)
     if not client.test_connection():
-        raise ConnectionError(f"Could not connect to CryoSPARC at {args.url}")
-
-    project = client.find_project(args.project)
+        raise ConnectionError(f"Could not connect to CryoSPARC at {prepared.url}")
+    project = client.find_project(prepared.project)
     run_external_orientation_job(
         project,
-        workspace_uid=args.workspace,
-        select_2d_source=ExternalJobSource(args.select_job, args.select_output),
-        select_templates_source=ExternalJobSource(
-            args.select_job, args.templates_output
-        ),
-        refinement_source=ExternalJobSource(
-            args.refinement_job, args.refinement_particles_output
-        ),
-        volume_source=ExternalJobSource(args.refinement_job, args.volume_output),
-        symmetry=args.symmetry,
-        interactive_class_numbers=args.classes or (),
-        render_options=ClassRenderOptions(
-            surface_level=args.surface_level,
-            map_name=args.render_map,
-            background=args.render_background,
-            image_size=args.render_size,
-            grid_size=args.render_grid_size,
-        ),
-        diagnostic_score_config=BandLimitedScoreConfig(
-            low_resolution_A=args.diagnostic_low_resolution_A,
-            high_resolution_A=args.diagnostic_high_resolution_A,
-            mask_radius_fraction=args.diagnostic_mask_radius_fraction,
-            mask_edge_fraction=args.diagnostic_mask_edge_fraction,
-        ),
-        comparison_options=ComparisonRenderOptions(
-            dpi=args.comparison_dpi,
-            page_size=args.preview_page_size,
-            auto_crop_2d=args.auto_crop_2d,
-        ),
-        warning_callback=lambda message: print(
-            f"WARNING: {message}", file=sys.stderr
-        ),
+        **prepared.options,
         status_callback=print,
+        warning_callback=lambda message: print(f"WARNING: {message}", file=sys.stderr),
     )
     return 0
