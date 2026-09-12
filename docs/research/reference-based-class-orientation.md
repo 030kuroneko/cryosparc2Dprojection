@@ -98,10 +98,12 @@ comparison, target-version convention checks and GPU throughput/accuracy remain
 unverified. Local timing artifacts, when present, only describe their stated
 synthetic inputs and host.
 
-Local verification: 535 tests passed, one hardware CUDA test skipped; the four
-mixed/missing-pose integration cases passed again after the final shared-volume
-and logging changes. The generated fallback three-column preview was visually
-checked for readable labels and aligned image panels.
+Final local verification: 541 tests passed, one hardware CUDA test skipped
+(`uv run pytest -q`). Regression coverage includes actual selection-grid output,
+mixed-grid publication and CUDA discovery error propagation. Both Standards and
+Spec reviews of `f14e707...3b03dd5` reported no remaining actionable findings.
+The generated fallback three-column preview was visually checked for readable
+labels and aligned image panels.
 
 [Local timing record](../fixtures/results/image_camera_local.json): on this
 arm64 macOS host, one synthetic 17-pixel identity-camera class took 1.651 s with
