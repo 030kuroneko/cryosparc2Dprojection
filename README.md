@@ -428,7 +428,8 @@ The created External Job contains:
 - `matched_projections`: native Class Average-grid projections used in Class
   Results;
 - `search_projections`: bounded projections that produced the raw camera-search
-  scores;
+  scores, with additional `search_projections_NNN` outputs for different search
+  grids;
 - `rendering_map`: the selected unsharpened or sharpened Rendering Map in the
   standard CryoSPARC `map` slot;
 - `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
@@ -437,7 +438,9 @@ The created External Job contains:
   metadata, presentation resolution, warnings, confidence, angular spread, and
   Surface Level;
 - `class_projections.mrcs`: one native-grid matched projection per class;
-- `search_projections.mrcs`: one bounded scored projection per class;
+- `search_projections.mrcs` and optional `search_projections_NNN.mrcs`: bounded
+  scored projections grouped by box and pixel size; each class records its
+  `search_projection_output` and zero-based `search_projection_index` in JSON;
 - `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
 - `renders/class_NNN_comparison.png`: three-column Class Result;
 - `chimerax/all_classes.cxc` and one ChimeraX script per class;

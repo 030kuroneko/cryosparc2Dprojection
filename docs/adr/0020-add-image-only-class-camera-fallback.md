@@ -6,6 +6,8 @@ Use global coarse search followed by local refinement of multiple candidates, wi
 
 Support NVIDIA GPU execution with CPU execution when no usable GPU is available. Both backends use the same search rules and require numerical consistency checks; acceleration is not claimed until measured. On GPU out-of-memory errors, reduce the batch and retry before restarting on CPU; report the reason. Other runtime errors fail visibly.
 
+Preserve the actual bounded scored projections and their selection-grid shifts, as required by ADR 0011. If pose and image routes use different grids, publish separate Search Projection stacks with per-class output/index and physical pixel size metadata. Native Matched Projection alignment remains separate.
+
 Acceptance covers known synthetic cameras, partial and complete absence of usable particle poses, symmetry-equivalent groups, CPU/GPU agreement and a real CryoSPARC projection comparison with timings. Missing GPU hardware or real data must be reported as unverified rather than counted as a successful validation. These behaviors are tested at the public image-camera search and External Job result boundaries, with launcher argument validation covering the user-facing settings.
 
 This narrows the first implementation relative to ADR 0002: low-scoring pose-seeded results do not trigger global recovery in this change. See the [research and design record](../research/reference-based-class-orientation.md) for evidence and unresolved implementation prerequisites.

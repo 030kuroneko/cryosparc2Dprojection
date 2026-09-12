@@ -5,6 +5,23 @@ from scipy.fft import next_fast_len
 from scipy.ndimage import affine_transform
 
 
+# These are the discovery failures for which CPU execution is an expected
+# fallback.  CuPy exposes the same CUDA Runtime enum values on its runtime
+# module; the numeric defaults keep the classification working with minimal
+# test doubles and older CuPy builds.  See the CUDA Runtime API error enum:
+# https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html
+_CUDA_DISCOVERY_UNAVAILABLE_STATUSES = {
+    "cudaErrorInsufficientDriver": 35,
+    "cudaErrorNoDevice": 100,
+}
+
+
+def _is_known_cuda_discovery_failure(runtime, error):
+    status = getattr(error, "status", None)
+    return any(status == getattr(runtime, name, default)
+               for name, default in _CUDA_DISCOVERY_UNAVAILABLE_STATUSES.items())
+
+
 class GPUOutOfMemory(RuntimeError):
     """The smallest projection batch cannot fit on the selected GPU."""
 
@@ -26,14 +43,25 @@ class CameraCompute:
                     raise RuntimeError("CUDA search requires a usable CuPy installation") from error
                 warning_callback("GPU unavailable (CuPy not installed); using CPU.")
             else:
+                reason = None
+                discovery_error = None
                 try:
                     available = cp.cuda.runtime.getDeviceCount() > 0
-                except cp.cuda.runtime.CUDARuntimeError:
+                except cp.cuda.runtime.CUDARuntimeError as error:
+                    if not _is_known_cuda_discovery_failure(cp.cuda.runtime, error):
+                        raise
                     available = False
+                    discovery_error = error
+                    reason = str(error)
                 if not available:
                     if device == "cuda":
+                        if reason is not None:
+                            raise RuntimeError(f"No usable CUDA device: {reason}") from discovery_error
                         raise RuntimeError("No usable CUDA device")
-                    warning_callback("GPU unavailable (no usable CUDA device); using CPU.")
+                    if reason is not None:
+                        warning_callback(f"GPU unavailable ({reason}); using CPU.")
+                    else:
+                        warning_callback("GPU unavailable (no usable CUDA device); using CPU.")
                 else:
                     self.xp = cp
                     self.transform = cuda_transform

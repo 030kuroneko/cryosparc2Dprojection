@@ -1,8 +1,9 @@
 """Image-only global Class Camera search, independent of particle poses."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from itertools import product
 from time import monotonic
+from types import MappingProxyType
 
 import numpy as np
 from scipy.ndimage import affine_transform, gaussian_filter, shift
@@ -10,8 +11,22 @@ from scipy.spatial.transform import Rotation
 
 from cryosparc_2d_projection.camera import ClassCameraResult
 from cryosparc_2d_projection.camera_compute import CameraCompute, GPUOutOfMemory
-from cryosparc_2d_projection.projection import find_projection_shift, project_volume_at_rotation
+from cryosparc_2d_projection.projection import project_volume_at_rotation
 from cryosparc_2d_projection.symmetry import SupportedSymmetry, symmetry_operators
+
+
+@dataclass(frozen=True)
+class ImageCameraSearchPreset:
+    max_size: int
+    coarse_step_degrees: float
+    seed_count: int
+    local_steps: tuple[float, ...]
+
+
+_SEARCH_PRESETS = MappingProxyType({
+    "standard": ImageCameraSearchPreset(32, 20., 8, (10., 5., 2., 1.)),
+    "fine": ImageCameraSearchPreset(48, 12., 12, (6., 3., 1., 0.5)),
+})
 
 
 @dataclass(frozen=True)
@@ -21,7 +36,7 @@ class ImageCameraSearchConfig:
     batch_size: int = 16
 
     def __post_init__(self):
-        if self.quality not in ("standard", "fine"):
+        if self.quality not in _SEARCH_PRESETS:
             raise ValueError("search quality must be standard or fine")
         if self.device not in ("auto", "cpu", "cuda"):
             raise ValueError("search device must be auto, cpu, or cuda")
@@ -30,7 +45,11 @@ class ImageCameraSearchConfig:
 
     @property
     def max_size(self):
-        return 32 if self.quality == "standard" else 48
+        return self.preset.max_size
+
+    @property
+    def preset(self):
+        return _SEARCH_PRESETS[self.quality]
 
 
 def _coarse_cameras(step):
@@ -63,7 +82,8 @@ def solve_class_cameras_from_images(class_averages, volume, *, symmetry="C1", co
     """Find complete cameras on an already prepared common physical grid.
 
     ``class_averages`` maps original zero-based class IDs to images. Coarse
-    projections are reused across classes. Pixel shifts use this input grid.
+    projections are reused across classes. Returned projections and pixel shifts
+    use the bounded selection grid recorded in ``search_metadata``.
     """
     config = config or ImageCameraSearchConfig()
     symmetry = SupportedSymmetry.parse(symmetry).value
@@ -76,7 +96,6 @@ def solve_class_cameras_from_images(class_averages, volume, *, symmetry="C1", co
     if not images or any(image.shape != (size, size) or not np.isfinite(image).all()
                          for image in images.values()):
         raise ValueError("class averages must be finite images on the volume grid")
-    input_volume, input_images = volume, images
     input_size = size
     size = min(size, config.max_size)
     scale = input_size / size
@@ -103,8 +122,6 @@ def solve_class_cameras_from_images(class_averages, volume, *, symmetry="C1", co
            for image in images.values()):
         raise ValueError("class average has no usable contrast")
     bound = int(size * 0.1)
-    step = 20. if config.quality == "standard" else 12.
-    seed_count = 8 if config.quality == "standard" else 12
     started = monotonic()
     warnings = []
 
@@ -117,17 +134,15 @@ def solve_class_cameras_from_images(class_averages, volume, *, symmetry="C1", co
     try:
         backend = CameraCompute(volume, images, weights, device=config.device,
                                 batch_size=config.batch_size, warning_callback=warn)
-        results = _search(images, volume, operators, backend, bound, step, seed_count,
-                          config, progress_callback)
+        results = _search(images, volume, operators, backend, bound, config, progress_callback)
     except GPUOutOfMemory as error:
         warn(f"{error}; restarting image-only search on CPU.")
         # Discard partial CUDA search before recomputing every class on CPU.
         backend = None
         backend = CameraCompute(volume, images, weights, device="cpu",
                                 batch_size=config.batch_size, warning_callback=warn)
-        results = _search(images, volume, operators, backend, bound, step, seed_count,
-                          config, progress_callback)
-    for key, result in results.items():
+        results = _search(images, volume, operators, backend, bound, config, progress_callback)
+    for result in results.values():
         result.search_metadata.update({"device": backend.device, "requested_device": config.device,
                                        "batch_size": backend.batch_size, "warnings": warnings,
                                        "elapsed_seconds": monotonic()-started, "symmetry": symmetry,
@@ -135,23 +150,12 @@ def solve_class_cameras_from_images(class_averages, volume, *, symmetry="C1", co
                                        "selection_pixel_size_in_input_pixels": scale,
                                        "selection_shift_pixels": result.projection_shift_pixels.tolist(),
                                        "confidence_policy": "heuristic; score >= 0.5 and distinct-group margin >= 0.03"})
-        if size != input_size:
-            projection = project_volume_at_rotation(input_volume, result.rotation_matrix)
-            xy = find_projection_shift(input_images[key], projection)
-            results[key] = replace(
-                result, projection_shift_pixels=xy,
-                matched_projection=shift(projection, (xy[1], xy[0]), order=1,
-                                         mode="constant", prefilter=False),
-                alternative_orientations=tuple({**candidate,
-                    "projection_shift_pixels": (np.asarray(candidate["projection_shift_pixels"])*scale).tolist()
-                } for candidate in result.alternative_orientations),
-            )
-        else:
-            results[key] = replace(result, matched_projection=result.matched_projection*volume_scale)
     return results
 
 
-def _search(images, volume, operators, backend, bound, step, seed_count, config, callback):
+def _search(images, volume, operators, backend, bound, config, callback):
+    preset = config.preset
+    step, seed_count = preset.coarse_step_degrees, preset.seed_count
     candidates = {key: [] for key in images}
     evaluations = {key: 0 for key in images}
     matrices = list(_coarse_cameras(step))
@@ -177,7 +181,7 @@ def _search(images, volume, operators, backend, bound, step, seed_count, config,
         refined = []
         for seed in seeds:
             best = seed
-            for increment in ([10., 5., 2., 1.] if config.quality == "standard" else [6., 3., 1., 0.5]):
+            for increment in preset.local_steps:
                 for _ in range(2):
                     origin = best[1]
                     matrices = [Rotation.from_euler("xyz", delta, degrees=True).as_matrix() @ origin

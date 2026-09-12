@@ -74,7 +74,7 @@ def test_cuda_camera_agrees_with_cpu_when_hardware_is_available():
     assert abs(cpu.match_score - gpu.match_score) < 1e-5
 
 
-def test_global_search_bounds_its_grid_and_preserves_input_shift_units():
+def test_global_search_returns_the_actual_selection_grid_and_shift_units():
     size = 35
     xyz = np.stack(np.meshgrid(*([np.arange(size) - (size-1)/2]*3), indexing="ij"))
     volume = np.zeros((size, size, size))
@@ -94,10 +94,13 @@ def test_global_search_bounds_its_grid_and_preserves_input_shift_units():
         {0: target}, volume, config=ImageCameraSearchConfig(device="cpu"),
     )[0]
     assert result.search_metadata["selection_box_size"] <= 32
-    assert result.matched_projection.shape == target.shape
+    assert result.matched_projection.shape == (32, 32)
+    assert np.allclose(result.projection_shift_pixels,
+                       result.search_metadata["selection_shift_pixels"])
     error_degrees = np.rad2deg(Rotation.from_matrix(result.rotation_matrix @ matrix.T).magnitude())
     assert error_degrees < 5
-    assert np.allclose(result.projection_shift_pixels, expected_shift, atol=1)
+    scale = result.search_metadata["selection_pixel_size_in_input_pixels"]
+    assert np.allclose(result.projection_shift_pixels * scale, expected_shift, atol=1)
 
 
 def _simulate_cuda_dependency(monkeypatch, *, max_batch=None, compute_error=None):

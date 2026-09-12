@@ -101,6 +101,33 @@ def test_class_result_rendering_rejects_an_empty_result_set(tmp_path):
     assert tuple(tmp_path.iterdir()) == ()
 
 
+def test_class_result_rendering_preserves_mixed_search_grids_without_resampling(tmp_path):
+    request = _one_class_request(tmp_path)
+    first = request.classes[0]
+    small_projection = np.arange(9, dtype=np.float32).reshape(3, 3)
+    second = replace(first, class_id=1, search_projection=small_projection,
+                     search_pixel_size_A=3.5)
+    result = render_class_results(replace(request, classes=(first, second)))
+
+    first_entry, second_entry = result.reproducibility_metadata["classes"]
+    assert first_entry["camera"]["search_projection_output"] == "search_projections"
+    second_output = second_entry["camera"]["search_projection_output"]
+    assert second_output != "search_projections"
+    second_stack = result.stacks[second_output]
+    header, data = mrc.read(second_stack.path)
+    assert data.shape == (1, 3, 3)
+    assert np.array_equal(data[0], small_projection)
+    assert np.isclose(header.xlen / header.nx, 3.5)
+    assert second_entry["camera"]["search_projection_index"] == 0
+    assert second_entry["camera"]["search_pixel_size_A"] == 3.5
+    _, matched = mrc.read(result.stacks["matched_projections"].path)
+    assert matched.shape == (2, 7, 7)
+
+    # Replacing a mixed-grid result set must also retire its extra search stack.
+    render_class_results(request)
+    assert not second_stack.path.exists()
+
+
 def test_class_result_rendering_writes_one_complete_local_result_set(tmp_path):
     matching_map = np.zeros((7, 7, 7), dtype=np.float32)
     matching_map[1:6, 1:6, 1:6] = 1.0

@@ -399,31 +399,33 @@ def _render_to_staging(request, classes, directory):
         [native_results[item.class_id].matched_projection for item in classes],
         dtype=np.float32,
     )
-    search_projections = np.asarray([item.search_projection for item in classes], dtype=np.float32)
+    matched_path = directory / "class_projections.mrcs"
+    matched_pixel_size = float(classes[0].class_average.pixel_size_A)
+    mrc.write(matched_path, projections, matched_pixel_size)
+    stacks = {
+        "matched_projections": ClassRenderedStack(
+            matched_path, len(projections), tuple(projections.shape[1:]), matched_pixel_size,
+        ),
+    }
+    search_groups = {}
+    for item, entry in zip(classes, reproducibility_metadata["classes"], strict=True):
+        grid = (tuple(item.search_projection.shape), float(item.search_pixel_size_A))
+        search_groups.setdefault(grid, []).append((item, entry))
+    for group_number, ((shape, pixel_size), members) in enumerate(
+        sorted(search_groups.items(), reverse=True), start=1,
+    ):
+        name = "search_projections" if group_number == 1 else f"search_projections_{group_number:03d}"
+        search_path = directory / f"{name}.mrcs"
+        search_projections = np.asarray([item.search_projection for item, _ in members], dtype=np.float32)
+        mrc.write(search_path, search_projections, pixel_size)
+        stacks[name] = ClassRenderedStack(search_path, len(members), shape, pixel_size)
+        for index, (_, entry) in enumerate(members):
+            entry["camera"]["search_projection_output"] = name
+            entry["camera"]["search_projection_index"] = index
     reproducibility_metadata_path = directory / "class_orientations.json"
     reproducibility_metadata_path.write_text(
         json.dumps(reproducibility_metadata, indent=2) + "\n"
     )
-    matched_path = directory / "class_projections.mrcs"
-    search_path = directory / "search_projections.mrcs"
-    matched_pixel_size = float(classes[0].class_average.pixel_size_A)
-    search_pixel_size = float(classes[0].search_pixel_size_A)
-    mrc.write(matched_path, projections, matched_pixel_size)
-    mrc.write(search_path, search_projections, search_pixel_size)
-    stacks = {
-        "matched_projections": ClassRenderedStack(
-            matched_path,
-            len(projections),
-            tuple(projections.shape[1:]),
-            matched_pixel_size,
-        ),
-        "search_projections": ClassRenderedStack(
-            search_path,
-            len(search_projections),
-            tuple(search_projections.shape[1:]),
-            search_pixel_size,
-        ),
-    }
     _emit(request, warnings, "progress", "preview-writing", "Writing result previews")
     preview_paths = []
     for page_number, page in enumerate(
@@ -527,6 +529,7 @@ def _promote_complete_result(staging_directory, output_directory):
         for name in _MANAGED_RESULT_NAMES
         if (output_directory / name).exists()
     ]
+    managed_targets.extend(output_directory.glob("search_projections_[0-9][0-9][0-9].mrcs"))
     with tempfile.TemporaryDirectory(
         dir=output_directory,
         prefix=".class-result-backup-",

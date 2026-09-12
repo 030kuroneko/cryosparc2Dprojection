@@ -190,7 +190,8 @@ def run_external_orientation_job(
                     orientation=orientations[class_id],
                     camera=camera,
                     search_projection=camera.matched_projection,
-                    search_pixel_size_A=matching_grid.pixel_size,
+                    search_pixel_size_A=(matching_grid.pixel_size *
+                                         camera.search_metadata.get("selection_pixel_size_in_input_pixels", 1.0)),
                 )
             )
 
@@ -242,6 +243,8 @@ def run_external_orientation_job(
             raise
 
         for name, stack in result_set.stacks.items():
+            if name not in ("matched_projections", "search_projections"):
+                adapter.add_template_output(name, title="Bounded camera-search projections")
             adapter.stage_template_source(
                 name,
                 stack.path.name,

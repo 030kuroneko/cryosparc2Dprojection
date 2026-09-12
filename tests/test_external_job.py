@@ -21,10 +21,13 @@ from PIL import Image
 from tests.external_job_backend import InMemoryExternalJobBackend
 
 
-@pytest.mark.parametrize("has_overlap", [True, False])
-def test_orientation_falls_back_per_class_and_preserves_all_selected_classes(tmp_path, has_overlap):
-    project, job = _native_grid_external_job(tmp_path, class_size=9)
+@pytest.mark.parametrize("has_overlap,class_size", [(True, 9), (False, 9), (True, 35)])
+def test_orientation_falls_back_per_class_and_preserves_all_selected_classes(tmp_path, has_overlap, class_size):
+    project, job = _native_grid_external_job(tmp_path, class_size=class_size)
     _, volume = mrc.read(tmp_path / "matching_volume.mrc")
+    if class_size > 9:
+        volume = np.pad(volume, (class_size - 9) // 2)
+        mrc.write(tmp_path / "matching_volume.mrc", volume, 1.5)
     mrc.write(tmp_path / "templates.mrcs", np.stack([volume.sum(axis=0)] * 2), 1.5)
     job.datasets["select_2d_templates"] = np.array(
         [("templates.mrcs", 0, 1.5), ("templates.mrcs", 1, 1.5)],
@@ -51,6 +54,15 @@ def test_orientation_falls_back_per_class_and_preserves_all_selected_classes(tmp
     assert fallback["particle_count"] == 0
     assert fallback["camera"]["search_metadata"]["device"] == "cpu"
     assert len(job.saved["matched_projections"]["blob/idx"]) == 2
+    for entry in classes:
+        camera = entry["camera"]
+        output = job.saved[camera["search_projection_output"]]
+        index = camera["search_projection_index"]
+        expected_size = min(class_size, 32) if camera["orientation_method"] == "image_global_search" else class_size
+        assert output["blob/shape"][index].tolist() == [expected_size, expected_size]
+        assert np.isclose(output["blob/psize_A"][index], 1.5 * class_size / expected_size)
+        if camera["orientation_method"] == "image_global_search":
+            assert camera["search_projection_shift_pixels"] == camera["search_metadata"]["selection_shift_pixels"]
 
 
 @pytest.mark.parametrize("field", ["alignments3D/pose", "alignments2D/pose"])

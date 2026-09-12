@@ -59,6 +59,11 @@ fallback classes, and usable overlapping particle count is zero. Camera metadata
 contains the estimated direction separately. Blank or invalid images fail
 explicitly rather than inventing an orientation.
 
+The actual selection projections and their pixel shifts are preserved on the
+bounded selection grid, with its physical pixel size recorded. Mixed pose/image
+search grids are published in separate `search_projections` /
+`search_projections_NNN` stacks. Every class records its output name and zero-based
+index; no replacement reprojection is substituted for the scored image.
 The selection box/shift units are recorded separately from the input search
 grid and native rendered grid. Native reprojection still performs its existing
 translation alignment without changing the selected rotation.
