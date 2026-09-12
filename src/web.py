@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import secrets
-import shutil
 import socket
 import sys
 import threading
@@ -233,7 +232,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
             g.identity['admin'] = True
         return jsonify(ok=True)
 
-    from cryosparc_2d_projection.web_lanes import register_lane_routes
+    from cryosparc_2d_projection.web_lanes import register_lane_routes, validate_shared_slurm_profile
     register_lane_routes(app, store)
 
     @app.get('/api/admin/slurm')
@@ -253,24 +252,9 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
         try:
             if not isinstance(body, dict) or set(body) not in (expected, expected | {'gpus'}):
                 raise ValueError('Provide the complete Slurm settings form.')
-            if body['shared_confirmed'] is not True:
-                raise ValueError('Confirm that this directory and Python are accessible at the same paths on compute nodes.')
-            for key in ('work_dir', 'python', 'partition', 'account', 'qos'):
-                if not isinstance(body[key], str) or len(body[key]) > 2048 or '\x00' in body[key]:
-                    raise ValueError('Invalid setting: ' + key)
-            directory, executable = Path(body['work_dir']), Path(body['python'])
-            if not directory.is_absolute() or not directory.is_dir():
-                raise ValueError('Choose an existing absolute shared directory, separate from CryoSPARC project folders.')
-            if directory.stat().st_mode & 0o077 or directory.stat().st_uid != os.getuid():
-                raise ValueError('Shared directory must be private (chmod 700) and owned by the service account.')
-            if not executable.is_absolute() or not executable.is_file() or not os.access(executable, os.X_OK):
-                raise ValueError('Python must be an absolute executable path, also available on compute nodes.')
             profile = {k: v for k, v in body.items() if k != 'shared_confirmed' and v != ''}
-            profile.update(backend='slurm', label='Slurm', work_dir=str(directory.resolve()))
-            validate_profiles({'slurm': profile})
-            missing = [name for name in ('sbatch', 'squeue', 'sacct') if not shutil.which(name)]
-            if missing:
-                raise ValueError('Slurm is not available on this server PATH: ' + ', '.join(missing))
+            profile.update(backend='slurm', label='Slurm')
+            profile = validate_shared_slurm_profile('slurm', profile, body['shared_confirmed'])
             store.save_slurm(profile)
         except (OSError, ValueError) as error:
             return jsonify(error=str(error)), 400

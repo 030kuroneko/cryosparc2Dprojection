@@ -17,6 +17,30 @@ SLURM_DEFAULTS = dict(backend='slurm', label='New Slurm lane', work_dir='', pyth
                       time_minutes=120, max_concurrent=1, enabled=True, template_path='', variables={})
 
 
+def validate_shared_slurm_profile(name, profile, shared_confirmed):
+    """Validate the shared execution contract for both administrator interfaces."""
+    if shared_confirmed is not True:
+        raise ValueError('Confirm that the directory and Python are accessible on compute nodes.')
+    for key in ('work_dir', 'python', 'partition', 'account', 'qos'):
+        value = profile.get(key, '')
+        if not isinstance(value, str) or len(value) > 2048 or '\x00' in value:
+            raise ValueError('Invalid setting: ' + key)
+    directory, executable = Path(profile.get('work_dir', '')), Path(profile.get('python', ''))
+    if not directory.is_absolute() or not directory.is_dir():
+        raise ValueError('Choose an existing absolute shared directory, separate from CryoSPARC project folders.')
+    if directory.stat().st_mode & 0o077 or directory.stat().st_uid != os.getuid():
+        raise ValueError('Shared directory must be private (chmod 700), owned by the service account.')
+    if not executable.is_absolute() or not executable.is_file() or not os.access(executable, os.X_OK):
+        raise ValueError('Python must be an absolute executable path available on compute nodes.')
+    profile = {k: v for k, v in profile.items() if k not in ('partition', 'account', 'qos') or v}
+    profile['work_dir'] = str(directory.resolve())
+    validate_profiles({name: profile})
+    missing = [command for command in ('sbatch', 'squeue', 'sacct') if not shutil.which(command)]
+    if missing:
+        raise ValueError('Slurm is not available on this server PATH: ' + ', '.join(missing))
+    return profile
+
+
 def _validate_settings(name, settings, current, reload_template, template_source=None):
     if not isinstance(settings, dict):
         raise ValueError('Provide lane settings.')
@@ -36,19 +60,7 @@ def _validate_settings(name, settings, current, reload_template, template_source
             profile['label'] = 'Local'
     else:
         profile = dict(SLURM_DEFAULTS, **{k: v for k, v in settings.items() if k in SLURM_DEFAULTS})
-        if settings.get('shared_confirmed') is not True:
-            raise ValueError('Confirm that the directory and Python are accessible on compute nodes.')
-        for key in ('work_dir', 'python', 'partition', 'account', 'qos'):
-            if not isinstance(profile[key], str) or len(profile[key]) > 2048 or '\x00' in profile[key]:
-                raise ValueError('Invalid setting: ' + key)
-        directory, executable = Path(profile['work_dir']), Path(profile['python'])
-        if not directory.is_absolute() or not directory.is_dir():
-            raise ValueError('Choose an existing absolute shared directory.')
-        if directory.stat().st_mode & 0o077 or directory.stat().st_uid != os.getuid():
-            raise ValueError('Shared directory must be private (chmod 700), owned by the service account.')
-        if not executable.is_absolute() or not executable.is_file() or not os.access(executable, os.X_OK):
-            raise ValueError('Python must be an absolute executable path available on compute nodes.')
-        profile['work_dir'] = str(directory.resolve())
+        profile = validate_shared_slurm_profile(name, profile, settings.get('shared_confirmed'))
         template_current = template_source or current
         template_path = profile['template_path']
         if not isinstance(template_path, str) or len(template_path) > 2048 or any(c in template_path for c in '\x00\r\n'):
@@ -68,10 +80,6 @@ def _validate_settings(name, settings, current, reload_template, template_source
         profile['template_sha256'] = sha256(profile['template_text'].encode()).hexdigest()
         profile['lane_id'] = name
         validate_variables(profile['variables'])
-        profile = {k: v for k, v in profile.items() if k not in ('partition', 'account', 'qos') or v}
-        missing = [name for name in ('sbatch', 'squeue', 'sacct') if not shutil.which(name)]
-        if missing:
-            raise ValueError('Slurm is not available on this server PATH: ' + ', '.join(missing))
     if not isinstance(profile['label'], str) or not profile['label'].strip() or len(profile['label']) > 100:
         raise ValueError('Provide a lane name of 1 to 100 characters.')
     validate_profiles({name: profile})

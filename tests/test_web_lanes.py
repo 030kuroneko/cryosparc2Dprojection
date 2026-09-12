@@ -165,6 +165,31 @@ exec {{ run_cmd }}
         store.update(claimed['id'], 'completed')
 
 
+def test_stopping_dispatcher_during_submission_leaves_remaining_jobs_queued(lab, tmp_path, monkeypatch):
+    import subprocess
+    from cryosparc_2d_projection.web_execution import Dispatcher
+    from cryosparc_2d_projection.web_jobs import JobStore
+    app, config, admin, headers, user, user_headers, settings = lab
+    apply_lane(admin, headers, 'cpu', dict(settings, max_concurrent=3))
+    jobs = [user.post('/api/jobs', json=dict(submission(), profile='cpu',
+            request_id=str(uuid.uuid4())), headers=user_headers).json['id'] for _ in range(3)]
+    dispatcher = Dispatcher(JobStore(config))
+    submitted = []
+    scheduler = tmp_path / 'sbatch'
+    scheduler.write_text('#!' + sys.executable + '\nprint("471")\n')
+    scheduler.chmod(0o700)
+    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
+    popen = subprocess.Popen
+    def start(argv, **kwargs):
+        submitted.append(argv)
+        dispatcher.close()
+        return popen(argv, **kwargs)
+    monkeypatch.setattr(subprocess, 'Popen', start)
+    dispatcher.tick()
+    assert len(submitted) == 1
+    assert [user.get('/api/jobs/' + job).json['state'] for job in jobs] == ['pending', 'queued', 'queued']
+
+
 def test_template_with_only_a_commented_worker_command_cannot_be_activated(lab, tmp_path):
     app, config, admin, headers, user, user_headers, settings = lab
     template = tmp_path / 'invalid.sh'

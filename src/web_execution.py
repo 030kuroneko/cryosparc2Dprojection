@@ -165,6 +165,8 @@ class Dispatcher:
                 if process:
                     process.wait(timeout=10)
         for _ in range(32):
+            if self.stop_event.is_set():
+                return
             job = self.store.claim_next()
             if job is None:
                 return

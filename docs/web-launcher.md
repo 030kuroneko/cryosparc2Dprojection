@@ -216,8 +216,10 @@ page can reload to see newly published lanes. Local remains usable without Slurm
 Start from [slurm-template.example.sh](slurm-template.example.sh), or the built-in
 example shown in the administration panel. Templates contain complete shell
 scripts, including module loading and environment setup before `{{ run_cmd }}`.
-Only administrator-owned templates are accepted. The launcher continues to own
-submission and status tracking; it does not execute custom scheduler adapters.
+Administrators must select trusted templates; the launcher does not validate
+file ownership or write permissions. Only authenticated, unlocked administrators
+can preview and activate them. The launcher continues to own submission and
+status tracking; it does not execute custom scheduler adapters.
 
 Supported placeholders are `{{ name }}` and `{{ name | quote }}`. The `quote`
 filter protects a single shell argument; use it for paths or custom values in
