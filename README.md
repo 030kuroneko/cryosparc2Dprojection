@@ -1,5 +1,34 @@
 # cryosparc2Dprojection
 
+## Select classes after Class Orientation
+
+New Class Orientation runs launched from the web interface provide a **Select
+classes** panel after completion. Review each original class alongside its
+matched projection and camera view, sort by class number, particle count or
+matching score, and use the checkboxes or Select all / Clear / Invert controls.
+Selections save automatically. Image-only fallback classes remain selectable;
+their particle counts describe the original input, not refinement overlap.
+
+**Export selection** snapshots the current choices and creates a new External
+Job in the same CryoSPARC project and workspace. It provides
+`particles_selected`, `templates_selected`, `particles_excluded`, and
+`templates_excluded`, preserving original dataset fields and source images.
+At least one class is required; selecting all classes produces empty excluded
+datasets. You can keep editing while an export runs and export another version
+later. This feature does not apply to Axis Search or older runs without saved
+selection artifacts; rerun Class Orientation to enable it.
+
+Failed exports retain their selection and can retry the recorded CryoSPARC job.
+If creation was interrupted before its job ID could be recorded, the UI blocks
+new exports for that run until an administrator reconciles the uncertain
+operation. Do not work around this by creating replacement jobs. Local SDK and
+browser tests cover selection and export behavior; empty-output acceptance and
+failed-job restart still require validation against a live CryoSPARC server.
+
+For the optional browser integration check, install Playwright in your test
+environment and run `node tests/browser_selection.cjs`; `CHROME_PATH` may specify
+a local Chrome executable. The check uses simulated API responses.
+
 ## Symmetry-Axis Class Search
 
 `cryosparc2d-axis-search` is the image-only CryoSPARC 5.0.6 workflow. It needs

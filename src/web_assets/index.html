@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/assets/app.css" />
     <script src="/assets/help.js" defer></script>
     <script src="/assets/progress.js" defer></script>
+    <script src="/assets/selection.js" defer></script>
     <script src="/assets/app.js" defer></script>
     <script src="/assets/lanes.js" defer></script>
   </head>
@@ -272,6 +273,26 @@
           <section id="progress-panel" class="progress-panel" hidden aria-label="Job progress">
             <p id="job-progress" role="status"></p>
             <progress id="job-progress-bar" aria-label="Current stage progress" hidden></progress>
+          </section>
+          <section id="class-selection" hidden aria-labelledby="selection-heading">
+            <div class="section-title"><h2 id="selection-heading">Select classes</h2>
+              <span id="selection-count" class="hint"></span></div>
+            <p class="hint">Review original classes with their matched projections and camera views. Exports preserve the original classes and their particles.</p>
+            <div class="selection-tools">
+              <button id="selection-all" type="button">Select all</button>
+              <button id="selection-clear" type="button">Clear</button>
+              <button id="selection-invert" type="button">Invert</button>
+              <label>Sort by <select id="selection-sort">
+                <option value="class_number">Class number</option>
+                <option value="particle_count">Particle count ↓</option>
+                <option value="score">Matching score ↓</option>
+              </select></label>
+              <button id="selection-reload" type="button">Reload selections</button>
+              <button id="selection-export" type="button" disabled>Export selection</button>
+            </div>
+            <p id="selection-status" class="hint" role="status" aria-live="polite"></p>
+            <div id="selection-cards" class="selection-cards"></div>
+            <div id="selection-exports" aria-label="Selection exports"></div>
           </section>
           <details id="log-panel" open>
             <summary>Activity log <span id="log-job"></span></summary>

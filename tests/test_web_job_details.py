@@ -12,7 +12,7 @@ def test_job_cleanup_warning_tracks_selected_job_and_disappears_after_cleanup():
 const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 const html = fs.readFileSync(process.argv[1] + '/index.html', 'utf8');
 const elements = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(([,id]) =>
-  [id, {hidden:true, textContent:'', innerHTML:'', value:'local', listeners:{},
+  [id, {hidden:true, textContent:'', innerHTML:'', value:'local', listeners:{}, dataset:{},
     addEventListener(event, fn) {this.listeners[event]=fn;},
     insertAdjacentHTML() {}, replaceChildren() {this.innerHTML='';}}]));
 assert.ok(elements['job-cleanup-warning'], 'Job details must contain a cleanup warning');
@@ -27,9 +27,11 @@ const context = {window:{}, document:{getElementById(id) {return elements[id];},
       profiles:[{id:'local',label:'Local',backend:'local'}]};
     if(path==='/api/jobs') return {jobs};
     if(path.endsWith('/log')) return {log:'Workflow completed.'};
+    if(path.endsWith('/selection')) return {available:false,reason:'Legacy run'};
     throw Error(path);
   }})};
 vm.runInNewContext(fs.readFileSync(process.argv[1] + '/progress.js', 'utf8'), context);
+vm.runInNewContext(fs.readFileSync(process.argv[1] + '/selection.js', 'utf8'), context);
 vm.runInNewContext(fs.readFileSync(process.argv[1] + '/app.js', 'utf8'), context);
 (async () => {
   await new Promise(setImmediate);

@@ -102,7 +102,8 @@ def test_orientation_exposes_readable_progress_until_publication_finishes(tmp_pa
     assert json.loads((tmp_path / 'job-progress.json').read_text())['state'] == 'completed'
 
 
-def test_publication_failure_does_not_report_success(tmp_path):
+def test_publication_failure_does_not_report_success(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRYOSPARC2D_SELECTION_DIR", str(tmp_path / "selection"))
     project, job = _native_grid_external_job(tmp_path, class_size=8)
     job.fail_output = 'matched_projections'
     messages = []
@@ -113,6 +114,7 @@ def test_publication_failure_does_not_report_success(tmp_path):
             render_options=ClassRenderOptions(image_size=64, grid_size=8),
             status_callback=messages.append,
         )
+    assert not (tmp_path / 'selection' / 'manifest.json').exists()
     assert messages[-1].startswith('Failed during Uploading results')
     assert not any(message.startswith('Completed') for message in messages)
     assert json.loads((tmp_path / 'job-progress.json').read_text())['remaining_seconds'] is None

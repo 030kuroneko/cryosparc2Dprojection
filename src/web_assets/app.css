@@ -1076,3 +1076,15 @@ button.help-button { flex: 0 0 19px; }
 #lane-preview, #template-example { max-height: 420px; overflow: auto; padding: 16px; border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 #lane-manager[hidden], #slurm-resource-fields[hidden], #lane-preview-panel[hidden] { display: none; }
 @media (max-width: 680px) { .lane-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Completed Class Orientation results */
+#class-selection { margin: 1.5rem 0; }
+.selection-tools { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+.selection-tools label { display:flex; gap:.5rem; align-items:center; }
+.selection-tools select { width:auto; }
+.selection-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr)); gap:1rem; }
+.selection-card { display:block; padding:1rem; border:1px solid var(--border, #556); border-radius:12px; cursor:pointer; }
+.selection-card.is-selected { outline:2px solid var(--accent, #76bfb3); outline-offset:-2px; }
+.selection-card-title { display:flex; align-items:center; flex-wrap:wrap; gap:.6rem; }
+.selection-card input { width:auto; }
+.selection-card img { width:100%; height:auto; display:block; margin:.8rem 0; border-radius:6px; }
+.selection-export-row { display:flex; gap:.7rem; align-items:center; flex-wrap:wrap; }

@@ -80,6 +80,14 @@ _Avoid_: Rejected class, failed class
 The one-based source class identifier shown in the CryoSPARC UI and preserved when a selected subset is reordered. It is not the selected input row position.
 _Avoid_: Zero-based class ID
 
+**Class Selection**:
+A user's choice of original input classes after reviewing completed results. Selected and excluded classes partition the selection's source set; their associated particles follow the same partition without changing particle information.
+_Avoid_: Projection selection, orientation selection
+
+**Class Selection Outputs**:
+The four subsets produced by a Class Selection: selected particles, selected original class averages, excluded particles, and excluded original class averages. The class averages are source images, not Matched Projections or Search Projections.
+_Avoid_: Selected projections, recalculated particles
+
 **Handedness Warning**:
 A warning that a mirrored projection fits substantially better than every non-mirrored candidate. Mirroring is diagnostic evidence and is not silently applied to a Class Result.
 _Avoid_: Automatic mirror correction

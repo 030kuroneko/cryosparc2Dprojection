@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 
 from cryosparc_2d_projection.camera import solve_class_camera_from_particle_poses
@@ -99,6 +101,7 @@ def run_external_orientation_job(
     with adapter.progress(status_callback) as progress, adapter.run():
         progress.start("Reading input data")
         select_particles = adapter.read_2d_particle_alignments("select_2d_particles")
+        original_particles = select_particles
         refinement_particles = adapter.read_3d_particle_alignments(
             "refinement_particles"
         )
@@ -310,6 +313,15 @@ def run_external_orientation_job(
             f"{len(missing_classes)} used image-only fallback."
         )
 
+    selection_directory = os.environ.get("CRYOSPARC2D_SELECTION_DIR")
+    if selection_directory:
+        from cryosparc_2d_projection.class_selection_artifacts import write_selection_artifacts
+        write_selection_artifacts(
+            selection_directory, project_uid=project.uid, workspace_uid=workspace_uid,
+            source_job_uid=adapter.uid, particles_source=select_2d_source,
+            templates_source=select_templates_source, original_particles=original_particles,
+            cameras=camera_results, comparison_paths=result_set.comparison_paths,
+        )
     return adapter.job
 
 

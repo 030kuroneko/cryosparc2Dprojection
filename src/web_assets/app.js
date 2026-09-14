@@ -19,6 +19,42 @@ const escape = (value) =>
         c
       ],
   );
+const selectionView = window.ClassSelectionView.create({api, render:renderSelection});
+function renderSelection(view) {
+  const panel = $("class-selection");
+  panel.hidden = view.hidden || !view.job || view.job.workflow !== "orientation" || view.job.state !== "completed";
+  const enabled = !!view.available;
+  for (const id of ["selection-all","selection-clear","selection-invert","selection-sort"]) $(id).disabled = !enabled;
+  $("selection-export").disabled = !view.canExport;
+  $("selection-export").textContent = view.exporting ? "Submitting…" : view.retryRequest ? "Retry export request" : "Export selection";
+  $("selection-count").textContent = enabled ? `${view.selected_class_numbers.length} / ${view.classes.length} selected` : "";
+  $("selection-status").textContent = view.error || (view.saving ? "Saving selections…" : enabled ? "Selections saved automatically. Each export creates a new CryoSPARC job." : view.reason || "Loading results…");
+  $("selection-sort").value = view.order || "class_number";
+  const selected = new Set(view.selected_class_numbers || []);
+  const markup = (view.classes || []).map(c => `<label class="selection-card ${selected.has(c.class_number) ? "is-selected" : ""}">
+    <span class="selection-card-title"><input type="checkbox" data-class="${c.class_number}" ${selected.has(c.class_number) ? "checked" : ""}> Class ${c.class_number}
+    <span class="hint">${Number(c.particle_count).toLocaleString()} particles · Score ${c.score == null ? "unavailable" : Number(c.score).toFixed(4)}</span></span>
+    <img loading="lazy" src="/api/jobs/${encodeURIComponent(view.job.id)}/selection/images/${encodeURIComponent(c.image)}" alt="Class ${c.class_number}: original class average, matched projection and camera view">
+    <span class="hint">${c.orientation_method === "image_global_search" ? "Image-only fallback" : "Particle poses"}${c.confidence === "low" ? " · Low confidence" : ""}</span></label>`).join("");
+  // Keep focus on a checkbox while an asynchronous save changes only its status.
+  if ($("selection-cards").dataset.markup !== markup) {
+    const focused = document.activeElement?.dataset.class;
+    $("selection-cards").innerHTML = markup;
+    $("selection-cards").dataset.markup = markup;
+    if (focused) $("selection-cards").querySelector(`[data-class="${Number(focused)}"]`)?.focus();
+  }
+  $("selection-exports").innerHTML = (view.exports || []).map(e=>`<p class="selection-export-row"><strong>${escape(e.job_uid || "Selection export")}</strong> · ${escape(e.state)}
+    ${e.detail ? `<span class="hint">${escape(e.detail)}</span>` : ""}
+    ${["failed","unknown"].includes(e.state) ? `<button type="button" data-retry-export="${escape(e.id)}">Check / retry</button>` : ""}</p>`).join("");
+}
+$("selection-cards").addEventListener("change", e=>{if(e.target.dataset.class) selectionView.toggle(Number(e.target.dataset.class));});
+$("selection-all").addEventListener("click",()=>selectionView.selectAll());
+$("selection-clear").addEventListener("click",()=>selectionView.clear());
+$("selection-invert").addEventListener("click",()=>selectionView.invert());
+$("selection-sort").addEventListener("change",e=>selectionView.sort(e.target.value));
+$("selection-reload").addEventListener("click",()=>selectionView.reload());
+$("selection-export").addEventListener("click",()=>selectionView.exportSelection());
+$("selection-exports").addEventListener("click", e=>{if(e.target.dataset.retryExport) selectionView.retry(e.target.dataset.retryExport);});
 async function api(path, method = "GET", body) {
   const response = await fetch(path, {
     method,
@@ -38,6 +74,7 @@ async function api(path, method = "GET", body) {
   return data;
 }
 function showLogin() {
+  selectionView.setJob(null);
   state.generation++;
   document.dispatchEvent(new Event("launcher-session-reset"));
   $("workspace").hidden = true;
@@ -295,6 +332,7 @@ async function loadLog() {
   const id = state.selected,
     generation = state.generation;
   const selectedJob = state.jobs.find((job) => job.id === id);
+  await selectionView.setJob(selectedJob);
   const warning = $("job-cleanup-warning");
   const outcome = { completed: "Computation succeeded", failed: "Computation failed", interrupted: "Computation interrupted" };
   warning.textContent = selectedJob?.cleanup_pending

@@ -234,6 +234,8 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     from cryosparc_2d_projection.web_lanes import register_lane_routes, validate_shared_slurm_profile
     register_lane_routes(app, store)
+    from cryosparc_2d_projection.web_selection import register_selection_routes
+    register_selection_routes(app, store)
 
     @app.get('/api/admin/slurm')
     def slurm_settings():
@@ -318,7 +320,7 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     @app.get('/assets/<name>')
     def asset(name):
-        if name not in ('app.js', 'app.css', 'theme.js', 'help.js', 'progress.js', 'lanes.js'):
+        if name not in ('app.js', 'app.css', 'theme.js', 'help.js', 'progress.js', 'lanes.js', 'selection.js'):
             return jsonify(error='Not found'), 404
         return send_from_directory(Path(__file__).parent / 'web_assets', name)
 
