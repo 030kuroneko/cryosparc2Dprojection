@@ -160,6 +160,14 @@ _Avoid_: CryoSPARC External Job, Axis Search Run, credential cleanup
 The removal of the CryoSPARC credentials retained for one Web Job. Pending cleanup is a visible, retryable condition that survives launcher restarts without repeating the scientific workflow or changing its execution outcome.
 _Avoid_: Workflow failure, computation retry, CryoSPARC account deletion
 
+**Web Job Stop**:
+A user-requested immediate termination of the computation associated with a Web Job, initiated from the web launcher, that retains the job record. A stop is complete only when termination is confirmed.
+_Avoid_: Hiding a Web Job, deleting results, merely changing the displayed status
+
+**Web Job Deletion**:
+Removal of a Web Job record from the web interface while preserving its local result files and associated CryoSPARC jobs and results. Deleting an active Web Job first stops its computation and removes the record only after termination is confirmed.
+_Avoid_: Result deletion, CryoSPARC job deletion, Web Job Stop
+
 **Slurm Lane**:
 A named, administrator-defined execution choice for Web Jobs on the shared Slurm cluster, with a fixed resource allocation available to all launcher users. A Slurm Lane is distinct from a CryoSPARC lane or a Slurm partition; multiple Slurm Lanes may use the same partition.
 _Avoid_: CryoSPARC lane, Slurm partition, user-defined resource request
