@@ -1088,3 +1088,116 @@ button.help-button { flex: 0 0 19px; }
 .selection-card input { width:auto; }
 .selection-card img { width:100%; height:auto; display:block; margin:.8rem 0; border-radius:6px; }
 .selection-export-row { display:flex; gap:.7rem; align-items:center; flex-wrap:wrap; }
+
+/* Settings disclosure motion (transitions.dev). */
+:root {
+  --acc-expand: 250ms;
+  --acc-collapse: 250ms;
+  --acc-chevron: 250ms;
+  --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* grid-template-rows 0fr → 1fr gives a clean height animation
+   with no JS measurement; the inner element clips overflow. */
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+.t-acc-panel-inner {
+  overflow: hidden;
+  opacity: 0;
+  filter: blur(2px);
+  transition:
+    opacity var(--acc-collapse) var(--acc-ease),
+    filter var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel-inner {
+  opacity: 1;
+  filter: blur(0);
+  transition:
+    opacity var(--acc-expand) var(--acc-ease),
+    filter var(--acc-expand) var(--acc-ease);
+}
+/* Flip the chevron vertically to turn the "v" into a "^".
+   scaleY(-1) about the centre passes through a flat line at
+   the midpoint (same look as a `d:` path morph) but animates
+   in every browser, unlike CSS `d:` morphing (Chromium only).
+   The chevron path is symmetric about the 16x16 viewBox
+   centre, so the flip lands exactly on the "^"; non-scaling
+   -stroke keeps the stroke width constant through the flip. */
+.t-acc-chevron {
+  display: inline-flex;
+  transform: scaleY(1);
+  transform-origin: center;
+  transition: transform var(--acc-chevron) var(--acc-ease);
+}
+.t-acc-chevron path { vector-effect: non-scaling-stroke; }
+.t-acc[data-open="true"] .t-acc-chevron {
+  transform: scaleY(-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-acc-panel, .t-acc-panel-inner, .t-acc-chevron {
+    transition: none !important;
+  }
+}
+
+.t-acc { border-top: 1px solid var(--line); padding: 17px 0; }
+button.t-acc-head {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--muted); text-align: left;
+}
+button.t-acc-head:hover { background: transparent; color: var(--accent); }
+button.t-acc-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.t-acc .fields { padding: 22px 0 4px; }
+.t-acc[data-open="false"] .t-acc-panel-inner {
+  visibility: hidden;
+  transition:
+    opacity var(--acc-collapse) var(--acc-ease),
+    filter var(--acc-collapse) var(--acc-ease),
+    visibility 0s var(--acc-collapse);
+}
+
+/* Short incoming workflow transition; the action bar stays stationary. */
+:root {
+  --panel-open-dur: 400ms;
+  --panel-close-dur: 350ms;
+  --panel-translate-y: 100px;
+  --panel-blur: 2px;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+.t-panel-slide {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity   var(--panel-close-dur) var(--panel-ease),
+    filter    var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.t-panel-slide[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-panel-slide { transition: none !important; }
+}
+
+.connection.t-panel-slide, .configuration.t-panel-slide {
+  --panel-open-dur: 250ms;
+  --panel-translate-y: 8px;
+}

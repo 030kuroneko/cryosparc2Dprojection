@@ -201,20 +201,39 @@ function renderForm() {
   $("advanced-fields").innerHTML = ["search", "rendering"]
     .map(
       (group) =>
-        `<details><summary>${{ search: "Search settings", rendering: "Rendering & presentation" }[group]}</summary><div class="fields">${workflow.fields
+        `<div class="t-acc" data-open="false"><button type="button" class="t-acc-head" aria-expanded="false" aria-controls="settings-${group}">${{ search: "Search settings", rendering: "Rendering & presentation" }[group]}<span class="t-acc-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 6.5L8 10.5L12 6.5" fill="none" stroke="currentColor"/></svg></span></button><div class="t-acc-panel" id="settings-${group}" inert><div class="t-acc-panel-inner"><div class="fields">${workflow.fields
           .filter((f) => f.group === group)
           .map(field)
-          .join("")}</div></details>`,
+          .join("")}</div></div></div></div>`,
     )
     .join("");
   $("form-error").textContent = "";
   conditional();
 }
+$("advanced-fields").addEventListener("click", (event) => {
+  const head = event.target.closest(".t-acc-head");
+  if (!head) return;
+  const acc = head.closest(".t-acc");
+  const open = acc.dataset.open !== "true";
+  acc.dataset.open = String(open);
+  head.setAttribute("aria-expanded", String(open));
+  acc.querySelector(".t-acc-panel").inert = !open;
+});
 document.querySelectorAll("[data-workflow]").forEach((button) =>
   button.addEventListener("click", () => {
+    if (state.workflow === button.dataset.workflow) return;
     state.workflow = button.dataset.workflow;
     state.requestId = null;
     renderForm();
+    // Replay only on an explicit workflow change, never on job polling.
+    document.querySelectorAll(".connection, .configuration").forEach((panel) => {
+      panel.classList.add("t-panel-slide");
+      panel.style.transition = "none";
+      panel.dataset.open = "false";
+      void panel.offsetWidth;
+      panel.style.removeProperty("transition");
+      panel.dataset.open = "true";
+    });
   }),
 );
 $("workflow-form").addEventListener("input", (event) => {
