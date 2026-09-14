@@ -2,11 +2,15 @@
 import json
 import math
 import re
-import threading
-import uuid
 from functools import wraps
 from werkzeug.exceptions import HTTPException
 from flask import abort, g, jsonify, request, send_file
+
+from cryosparc_2d_projection.class_selection_jobs import (
+    ClassSelectionExportLifecycle,
+    ExportLifecycleError,
+    ExportNotFound,
+)
 
 
 def _project(url, identity, project_uid):
@@ -28,13 +32,17 @@ def _project(url, identity, project_uid):
 
 
 def register_selection_routes(app, store):
+    def project_factory(identity, project_uid):
+        # Look up the factory when the worker starts. Tests and deployments can
+        # configure it after route registration without changing token scope.
+        factory = app.config.get('SELECTION_PROJECT_FACTORY')
+        return factory(identity, project_uid) if factory else _project(
+            store.config['cryosparc_url'], identity, project_uid)
+
+    lifecycle = ClassSelectionExportLifecycle(store, project_factory=project_factory)
+    app.extensions['class_selection_export_lifecycle'] = lifecycle
+
     with store.connect() as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS class_exports (
-            id TEXT PRIMARY KEY, job_id TEXT NOT NULL, request_id TEXT NOT NULL,
-            selected TEXT NOT NULL, manifest TEXT NOT NULL, state TEXT NOT NULL,
-            job_uid TEXT, detail TEXT NOT NULL DEFAULT '', UNIQUE(job_id,request_id))''')
-        db.execute("UPDATE class_exports SET state='unknown', detail='Service restarted; retry reconciles the recorded job. Without a job ID, administrator reconciliation is required.' WHERE state IN ('creating','publishing')")
-        db.execute("UPDATE class_exports SET state='failed', detail='Service restarted before remote creation; retry this export.' WHERE state='preparing'")
         db.execute('CREATE TABLE IF NOT EXISTS class_selections (job_id TEXT PRIMARY KEY, selected TEXT NOT NULL, revision INTEGER NOT NULL)')
 
     def json_errors(function):
@@ -97,7 +105,7 @@ def register_selection_routes(app, store):
             return dict(available=False, reason='Rerun Class Orientation to enable class selection.')
         with store.connect() as db:
             row = db.execute('SELECT * FROM class_selections WHERE job_id=?', (job_id,)).fetchone()
-        return dict(available=True, classes=manifest['classes'], selected_class_numbers=json.loads(row['selected']) if row else [], revision=row['revision'] if row else 0, exports=export_list(job_id))
+        return dict(available=True, classes=manifest['classes'], selected_class_numbers=json.loads(row['selected']) if row else [], revision=row['revision'] if row else 0, exports=lifecycle.list_exports(g.identity, job_id))
 
     @app.get('/api/jobs/<job_id>/selection')
     @json_errors
@@ -136,42 +144,6 @@ def register_selection_routes(app, store):
         return send_file(path, mimetype='image/png', max_age=0)
 
 
-    def public_export(row):
-        return dict(id=row['id'], state=row['state'], job_uid=row['job_uid'], detail=row['detail'],
-                    selected_class_numbers=json.loads(row['selected']))
-
-    def export_list(job_id):
-        with store.connect() as db:
-            return [public_export(row) for row in db.execute('SELECT * FROM class_exports WHERE job_id=? ORDER BY rowid DESC', (job_id,))]
-
-    def execute_export(export_id, identity):
-        try:
-            from cryosparc_2d_projection.class_selection_export import export_class_selection
-            with store.connect() as db:
-                row = db.execute('SELECT * FROM class_exports WHERE id=?', (export_id,)).fetchone()
-            manifest = json.loads(row['manifest'])
-            factory = app.config.get('SELECTION_PROJECT_FACTORY')
-            project = factory(identity, manifest['project_uid']) if factory else _project(store.config['cryosparc_url'], identity, manifest['project_uid'])
-            def created(uid):
-                if not isinstance(uid, str) or not re.fullmatch(r'J\d+', uid):
-                    raise ValueError('Invalid remote job identity')
-                with store.connect() as db:
-                    db.execute("UPDATE class_exports SET job_uid=?,state='publishing' WHERE id=?", (uid, export_id))
-            def creating():
-                with store.connect() as db:
-                    db.execute("UPDATE class_exports SET state='creating' WHERE id=?", (export_id,))
-            result = export_class_selection(project, manifest['workspace_uid'], manifest,
-                                            json.loads(row['selected']), job_uid=row['job_uid'], on_created=created, on_creating=creating)
-            with store.connect() as db:
-                db.execute("UPDATE class_exports SET state='completed',job_uid=?,detail='' WHERE id=?", (result['job_uid'], export_id))
-        except Exception:
-            with store.connect() as db:
-                row = db.execute('SELECT job_uid,state FROM class_exports WHERE id=?', (export_id,)).fetchone()
-                uncertain = row['state'] == 'creating' and not row['job_uid']
-                detail = ('CryoSPARC creation outcome is unknown. Administrator reconciliation is required before another export; do not create a replacement job.' if uncertain else
-                          'Export could not finish. Sign in again if needed, then retry this export.')
-                db.execute('UPDATE class_exports SET state=?,detail=? WHERE id=?', ('unknown' if uncertain else 'failed', detail, export_id))
-
     @app.post('/api/jobs/<job_id>/selection/exports')
     @json_errors
     def start_export(job_id):
@@ -183,44 +155,22 @@ def register_selection_routes(app, store):
         if not values:
             abort(400, 'Select at least one class')
         try:
-            request_id = str(uuid.UUID(body.get('request_id')))
-        except (ValueError, TypeError, AttributeError):
-            abort(400, 'Invalid request ID')
-        with store.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            prior = db.execute('SELECT * FROM class_exports WHERE job_id=? AND request_id=?', (job_id, request_id)).fetchone()
-            if prior:
-                if json.loads(prior['selected']) != values:
-                    abort(409, 'Request ID already used with another selection')
-                return jsonify(public_export(prior)), 202
-            if db.execute("SELECT 1 FROM class_exports WHERE job_id=? AND state='unknown' AND job_uid IS NULL", (job_id,)).fetchone():
-                abort(409, 'Resolve the unknown export with an administrator before creating another job.')
-            if db.execute("SELECT COUNT(*) FROM class_exports WHERE state IN ('preparing','creating','publishing')").fetchone()[0] >= 4:
-                abort(429, 'Export capacity reached; try again later')
-            export_id = uuid.uuid4().hex
-            db.execute('INSERT INTO class_exports (id,job_id,request_id,selected,manifest,state) VALUES (?,?,?,?,?,?)',
-                       (export_id, job_id, request_id, json.dumps(values), json.dumps(manifest), 'preparing'))
-            row = db.execute('SELECT * FROM class_exports WHERE id=?', (export_id,)).fetchone()
-        threading.Thread(target=execute_export, args=(export_id, dict(g.identity)), daemon=True).start()
-        return jsonify(public_export(row)), 202
+            result = lifecycle.start(dict(g.identity), job_id, body.get('request_id'), values, manifest)
+        except ExportLifecycleError as error:
+            abort(error.status_code, str(error))
+        except ValueError as error:
+            abort(400, str(error))
+        return jsonify(result), 202
 
     @app.post('/api/jobs/<job_id>/selection/exports/<export_id>/retry')
     @json_errors
     def retry_export(job_id, export_id):
         if manifest_for(job_id) is None:
             abort(409, 'Rerun Class Orientation to enable class selection.')
-        with store.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT * FROM class_exports WHERE id=? AND job_id=?', (export_id, job_id)).fetchone()
-            if not row:
-                abort(404)
-            if row['state'] in ('preparing', 'creating', 'publishing', 'completed'):
-                return jsonify(public_export(row)), 202
-            if row['state'] == 'unknown' and not row['job_uid']:
-                abort(409, 'Administrator must reconcile the unknown CryoSPARC job before retry.')
-            if db.execute("SELECT COUNT(*) FROM class_exports WHERE state IN ('preparing','creating','publishing')").fetchone()[0] >= 4:
-                abort(429, 'Export capacity reached; try again later.')
-            db.execute("UPDATE class_exports SET state='preparing',detail='' WHERE id=?", (export_id,))
-            row = db.execute('SELECT * FROM class_exports WHERE id=?', (export_id,)).fetchone()
-        threading.Thread(target=execute_export, args=(export_id, dict(g.identity)), daemon=True).start()
-        return jsonify(public_export(row)), 202
+        try:
+            result = lifecycle.retry(dict(g.identity), job_id, export_id)
+        except ExportNotFound:
+            abort(404)
+        except ExportLifecycleError as error:
+            abort(error.status_code, str(error))
+        return jsonify(result), 202

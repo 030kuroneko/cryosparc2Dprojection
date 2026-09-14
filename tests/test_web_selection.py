@@ -268,3 +268,12 @@ def test_source_preflight_failure_is_retryable_without_unknown_creation(tmp_path
     assert client.post(path + '/exports/' + failed['id'] + '/retry').status_code == 202
     wait_export(client, path, 'completed')
     assert project.create_external_job.call_count == 1
+
+
+def test_missing_export_retry_preserves_not_found_response(tmp_path):
+    from werkzeug.exceptions import NotFound
+
+    app, _ = setup(tmp_path)
+    response = app.test_client().post('/api/jobs/one/selection/exports/missing/retry')
+    assert response.status_code == 404
+    assert response.json == {'error': NotFound.description}
