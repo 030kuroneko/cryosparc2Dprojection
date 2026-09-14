@@ -3,6 +3,7 @@
 window.ClassSelectionView = {
   create({api, render}) {
     let current = null, order = "class_number";
+    const jobs = new Map();
     const path = item => `/api/jobs/${encodeURIComponent(item.job.id)}/selection`;
     function paint(item) {
       if (item !== current) return;
@@ -67,16 +68,18 @@ window.ClassSelectionView = {
     }
     return {
       async setJob(job) {
-        if (!job) {current = null; render({available:false,hidden:true}); return;}
-        if (current?.job.id === job.id) {
-          current.job = job;
-          if (!current.pending && !current.error) await refresh(current);
-          return;
+        if (!job) {current = null; jobs.clear(); render({available:false,hidden:true}); return;}
+        let item = jobs.get(job.id);
+        if (!item) {
+          item = {job,data:{available:false,classes:[]},selected:new Set(),pending:0,
+            queue:Promise.resolve(),serial:0,error:""};
+          jobs.set(job.id, item);
         }
-        current = {job,data:{available:false,classes:[]},selected:new Set(),pending:0,
-          queue:Promise.resolve(),serial:0,error:""};
-        paint(current);
-        if (job.workflow === "orientation" && job.state === "completed") await refresh(current);
+        current = item;
+        item.job = job;
+        paint(item);
+        if (job.workflow === "orientation" && job.state === "completed" && !item.pending && !item.error)
+          await refresh(item);
       },
       toggle(number) {
         const selected = new Set(current.selected);

@@ -1,10 +1,10 @@
 """Publish original Class Selection datasets through the CryoSPARC SDK."""
 
 from contextlib import suppress
-import hashlib
-import json
 
 import numpy as np
+
+from cryosparc_2d_projection.class_selection_artifacts import particle_membership_digest
 
 
 def export_class_selection(project, workspace_uid, manifest, selected_class_numbers,
@@ -38,9 +38,7 @@ def export_class_selection(project, workspace_uid, manifest, selected_class_numb
     if not {int(n) + 1 for n in particle_ids} <= allowed:
         raise ValueError('Source particle class membership is outside input classes')
     if manifest.get('particles_membership_digest'):
-        pairs = sorted([int(uid), int(class_id)] for uid, class_id in
-                       zip(datasets['particles']['uid'], particle_ids, strict=True))
-        digest = hashlib.sha256(json.dumps(pairs, separators=(',', ':')).encode()).hexdigest()
+        digest = particle_membership_digest(datasets['particles']['uid'], particle_ids)
         if digest != manifest['particles_membership_digest']:
             raise ValueError('Source particle membership changed since completion')
     if job is None:

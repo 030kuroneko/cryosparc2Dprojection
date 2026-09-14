@@ -118,3 +118,37 @@ vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),context);
   await ui.reload(); assert.deepEqual(Array.from(view.selected_class_numbers),[]);
 })().catch(e=>{console.error(e);process.exitCode=1});
 ''')
+
+
+def test_switching_jobs_retains_inflight_selection_and_revision():
+    run_browser(r'''
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const context={window:{}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),context);
+(async()=>{
+  let view, release, began, first=true;
+  const gate=new Promise(r=>release=r), started=new Promise(r=>began=r);
+  const saved={a:[],b:[]}, revisions={a:0,b:0};
+  const api=async(path,method,body)=>{
+    const id=path.split('/')[3];
+    if(method==='PUT') {
+      if(first) {first=false;began();await gate;}
+      if(body.revision!==revisions[id]) throw Error('Revision conflict');
+      saved[id]=body.selected_class_numbers;revisions[id]++;
+    }
+    return {available:true,classes:[{class_number:1},{class_number:2}],
+      selected_class_numbers:saved[id],revision:revisions[id],exports:[]};
+  };
+  const ui=context.window.ClassSelectionView.create({api,render:v=>view=v});
+  const a={id:'a',workflow:'orientation',state:'completed'},b={...a,id:'b'};
+  await ui.setJob(a);const saving=ui.toggle(1);await started;
+  await ui.setJob(b);await ui.setJob(a);
+  assert.deepEqual(Array.from(view.selected_class_numbers),[1]);
+  const second=ui.toggle(2);release();await saving;await second;
+  assert.deepEqual(Array.from(saved.a),[1,2]);
+  assert.deepEqual(Array.from(view.selected_class_numbers),[1,2]);
+  assert.equal(view.error,'');
+  await ui.setJob(null);await ui.setJob(a);
+  assert.deepEqual(Array.from(view.selected_class_numbers),[1,2]);
+})().catch(e=>{console.error(e);process.exitCode=1});
+''')
