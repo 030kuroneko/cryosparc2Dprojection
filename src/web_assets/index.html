@@ -9,6 +9,7 @@
     <script src="/assets/help.js" defer></script>
     <script src="/assets/progress.js" defer></script>
     <script src="/assets/selection.js" defer></script>
+    <script src="/assets/job-controls.js" defer></script>
     <script src="/assets/app.js" defer></script>
     <script src="/assets/lanes.js" defer></script>
   </head>
@@ -294,6 +295,13 @@
             <div id="selection-cards" class="selection-cards"></div>
             <div id="selection-exports" aria-label="Selection exports"></div>
           </section>
+          <section id="job-controls" hidden aria-label="Selected job actions">
+            <p id="job-control-target" class="hint"></p>
+            <button id="stop-job" type="button">Stop job</button>
+            <button id="delete-job" type="button">Delete job</button>
+            <p id="job-control-status" class="hint" role="status" aria-live="polite"></p>
+          </section>
+          <p id="job-deletion-warnings" class="cleanup-warning" role="status" hidden></p>
           <details id="log-panel" open>
             <summary>Activity log <span id="log-job"></span></summary>
             <p id="job-cleanup-warning" class="cleanup-warning" hidden></p>

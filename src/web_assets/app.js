@@ -20,6 +20,17 @@ const escape = (value) =>
       ],
   );
 const selectionView = window.ClassSelectionView.create({api, render:renderSelection});
+const jobControls = window.JobControls.create({api, confirm: message => window.confirm(message), refresh,
+  render(view) {
+    $("job-controls").hidden = !view.visible;
+    $("stop-job").disabled = view.busy || !view.canStop;
+    $("stop-job").textContent = view.stopLabel;
+    $("delete-job").disabled = view.busy;
+    $("job-control-status").textContent = view.error || (view.busy ? "Sending request…" : "");
+  }
+});
+$("stop-job").addEventListener("click", () => jobControls.stop());
+$("delete-job").addEventListener("click", () => jobControls.remove());
 function renderSelection(view) {
   const panel = $("class-selection");
   panel.hidden = view.hidden || !view.job || view.job.workflow !== "orientation" || view.job.state !== "completed";
@@ -82,6 +93,7 @@ function showLogin() {
   state.schema = null;
   state.pages = {};
   state.selected = null;
+  jobControls.setJob(null);
   state.jobs = [];
   state.requestId = null;
   $("password").value = "";
@@ -330,7 +342,7 @@ function renderJobs() {
   $("job-list").innerHTML = state.jobs
     .map(
       (job) =>
-        `<button type="button" class="job-row ${job.id === state.selected ? "selected" : ""}" data-job="${job.id}"><span>${escape(state.schema.workflows[job.workflow].title)} <small> / ${escape(job.values.project)} · ${escape(job.values.workspace)}</small></span><span class="job-state ${job.state}">${escape(job.state)}</span><span class="meta">${escape(new Date(job.created).toLocaleString())} · ${escape(job.profile)}${job.scheduler_id ? " · Slurm " + escape(job.scheduler_id) : ""} · ${job.id.slice(0, 8)}${job.detail ? " — " + escape(job.detail) : ""}</span></button>`,
+        `<button type="button" class="job-row ${job.id === state.selected ? "selected" : ""}" data-job="${job.id}"><span>${escape(state.schema.workflows[job.workflow].title)} <small> / ${escape(job.values.project)} · ${escape(job.values.workspace)}</small></span><span class="job-state ${job.state}">${escape(job.state === "interrupted" ? "stopped" : job.state)}</span><span class="meta">${escape(new Date(job.created).toLocaleString())} · ${escape(job.profile)}${job.scheduler_id ? " · Slurm " + escape(job.scheduler_id) : ""} · ${job.id.slice(0, 8)}${job.detail ? " — " + escape(job.detail) : ""}</span></button>`,
     )
     .join("");
 }
@@ -347,10 +359,21 @@ $("job-list").addEventListener("click", async (event) => {
   await loadLog();
 });
 async function loadLog() {
-  if (!state.selected) return;
+  if (!state.selected) {
+    jobControls.setJob(null);
+    await selectionView.setJob(null);
+    $("job-log").textContent = "Select a run to inspect its activity.";
+    $("job-details").textContent = "";
+    $("log-job").textContent = "";
+    $("progress-panel").hidden = true;
+    $("job-cleanup-warning").hidden = true;
+    return;
+  }
   const id = state.selected,
     generation = state.generation;
   const selectedJob = state.jobs.find((job) => job.id === id);
+  jobControls.setJob(selectedJob);
+  $("job-control-target").textContent = "Selected job · " + id.slice(0, 8);
   await selectionView.setJob(selectedJob);
   const warning = $("job-cleanup-warning");
   const outcome = { completed: "Computation succeeded", failed: "Computation failed", interrupted: "Computation interrupted" };
@@ -397,8 +420,11 @@ async function refresh() {
     const data = await api("/api/jobs");
     if (!state.schema || generation !== state.generation) return;
     state.jobs = data.jobs;
+    if (!state.jobs.some(job => job.id === state.selected)) state.selected = state.jobs[0]?.id || null;
+    const warnings = data.deletion_warnings || [];
+    $("job-deletion-warnings").textContent = warnings.map(w => `${w.id.slice(0, 8)} · ${w.detail}`).join("\n");
+    $("job-deletion-warnings").hidden = !warnings.length;
     renderJobs();
-    if (!state.selected && state.jobs.length) state.selected = state.jobs[0].id;
     await loadLog();
     if (generation === state.generation)
       $("refresh-status").textContent =

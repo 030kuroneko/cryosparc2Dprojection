@@ -7,6 +7,8 @@ Dataset slots and ExternalJobController methods directly.
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+import json
+import os
 
 import numpy as np
 from cryosparc import mrc
@@ -106,11 +108,18 @@ class CryoSPARCExternalJobAdapter:
     def __init__(self, project, workspace_uid, title=None, *, job=None):
         self.project = project
         self.workspace_uid = workspace_uid
+        marker = os.environ.get('CRYOSPARC2D_EXTERNAL_JOB_PATH')
+        if marker:
+            Path(marker).write_text(json.dumps({'pending': True}))
         self.job = (
             job
             if job is not None
             else project.create_external_job(workspace_uid, title=title or "")
         )
+        if marker:
+            temporary = Path(marker).with_suffix('.tmp')
+            temporary.write_text(json.dumps({'project_uid': self.job.project_uid, 'job_uid': self.job.uid}))
+            temporary.replace(marker)
         self._staged_outputs = []
         self._published = False
 

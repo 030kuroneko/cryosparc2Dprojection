@@ -215,7 +215,8 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
 
     @app.get('/api/jobs')
     def jobs():
-        return jsonify(jobs=store.list(g.identity['owner']))
+        return jsonify(jobs=store.list(g.identity['owner']),
+                       deletion_warnings=store.deletion_warnings(g.identity['owner']))
 
     @app.get('/api/request-id')
     def request_id():
@@ -268,6 +269,12 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
             return jsonify(store.submit(g.identity, request.get_json(silent=True))), 201
         except ValueError as error:
             return jsonify(error=str(error)), 400
+
+    @app.post('/api/jobs/<job_id>/stop')
+    @app.delete('/api/jobs/<job_id>')
+    def control_job(job_id):
+        item = store.request_control(g.identity['owner'], job_id, delete=request.method == 'DELETE')
+        return (jsonify(item), 200) if item else (jsonify(error='Job not found'), 404)
 
     @app.get('/api/jobs/<job_id>')
     def job(job_id):

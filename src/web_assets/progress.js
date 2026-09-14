@@ -8,7 +8,8 @@
   }
 
   function describe(progress, jobState, now = Date.now() / 1000) {
-    const terminal = {completed: "Completed", failed: "Failed", interrupted: "Interrupted", unknown: "Status unavailable"};
+    if (jobState === "stopping") return {text: "Stopping · Waiting for confirmed termination.", value: null, max: null};
+    const terminal = {completed: "Completed", failed: "Failed", interrupted: "Stopped", unknown: "Status unavailable"};
     const status = terminal[jobState] ? jobState : progress?.state || jobState;
     if (terminal[status]) {
       const context = status === "completed" ? "All required results uploaded." :

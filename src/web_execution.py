@@ -89,6 +89,22 @@ class SlurmBackend:
             raise RuntimeError('Ambiguous Slurm submission response')
         return job_id
 
+    def stop(self, job_id):
+        if not re.fullmatch(r'[1-9][0-9]*', job_id):
+            raise ValueError('Invalid Slurm job ID')
+        state, _ = self.status(job_id)
+        if state in ('completed', 'failed'):
+            return True
+        env = {key: value for key, value in os.environ.items() if not key.startswith('SCANCEL_')}
+        if state != 'pending':
+            self.run(['scancel', '--quiet', '--signal=KILL', '--full', job_id], capture_output=True,
+                     text=True, timeout=15, check=True, env=env)
+        # KILL alone signals steps; normal cancellation releases the allocation too.
+        self.run(['scancel', '--quiet', job_id], capture_output=True,
+                 text=True, timeout=15, check=True, env=env)
+        state, _ = self.status(job_id)
+        return state in ('completed', 'failed')
+
     def status(self, job_id):
         if not re.fullmatch(r'[1-9][0-9]*', job_id):
             raise ValueError('Invalid Slurm job ID')
@@ -160,6 +176,9 @@ class Dispatcher:
     def tick(self):
         self.store.retry_cleanup()
         for job in self.store.active_jobs():
+            if job['stop_requested']:
+                self._stop_job(job)
+                continue
             if self.store.reconcile(job['id'], lambda: self._observe(job)):
                 process = self.processes.pop(job['id'], None)
                 if process:
@@ -182,11 +201,38 @@ class Dispatcher:
                                                    stdout=out, stderr=out, cwd=directory,
                                                    env=worker_environment(profile.get('cpus', 1)), start_new_session=True)
                     self.processes[job_id] = process
+                    from cryosparc_2d_projection.web_local_process import record_process
+                    record_process(directory, process)
                     self.store.update(job_id, 'running')
             except (FileNotFoundError, subprocess.CalledProcessError):
                 self.store.update(job_id, 'failed', 'Submission failed. Check the configured executable and scheduler access.')
             except Exception:
                 self.store.update(job_id, 'unknown', 'Submission outcome uncertain. Administrator reconciliation required; not resubmitting.')
+
+    def _stop_job(self, job):
+        job_id = job['id']
+        try:
+            process = self.processes.get(job_id)
+            if process is None and self.store.reconcile(
+                    job_id, lambda: ExecutionObservation(process_alive=True)):
+                return
+            if job['scheduler_id']:
+                if not SlurmBackend({}).stop(job['scheduler_id']):
+                    return
+            else:
+                from cryosparc_2d_projection.web_local_process import kill_local
+                kill_local(self.store.directory(job_id), process)
+            # A result written before termination preserves the actual outcome.
+            completed = self.store.reconcile(job_id, lambda: ExecutionObservation(process_alive=True))
+            from cryosparc_2d_projection.web_job_stop import sync_external_stop
+            warning = '' if completed else sync_external_stop(self.store.directory(job_id))
+            self.store.record_stop_warning(job_id, warning)
+            self.store.update(job_id, 'interrupted', 'Stopped by user.' + (' ' + warning if warning else ''))
+            self.processes.pop(job_id, None)
+            if job['delete_requested']:
+                self.store.hide(job_id)
+        except (OSError, subprocess.SubprocessError, RuntimeError, ValueError, KeyError, TypeError):
+            self.store.update(job_id, 'stopping', 'Stop not confirmed. Check execution access and retry.')
 
     def _observe(self, job):
         if job['scheduler_id']:

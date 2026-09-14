@@ -32,6 +32,7 @@ const context = {window:{}, document:{getElementById(id) {return elements[id];},
   }})};
 vm.runInNewContext(fs.readFileSync(process.argv[1] + '/progress.js', 'utf8'), context);
 vm.runInNewContext(fs.readFileSync(process.argv[1] + '/selection.js', 'utf8'), context);
+vm.runInNewContext(fs.readFileSync(process.argv[1] + '/job-controls.js', 'utf8'), context);
 vm.runInNewContext(fs.readFileSync(process.argv[1] + '/app.js', 'utf8'), context);
 (async () => {
   await new Promise(setImmediate);

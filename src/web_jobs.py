@@ -70,13 +70,15 @@ class JobStore:
                 state TEXT NOT NULL, created TEXT NOT NULL, scheduler_id TEXT,
                 detail TEXT NOT NULL DEFAULT '', UNIQUE(owner, request_id))''')
             columns = {r[1] for r in db.execute('PRAGMA table_info(jobs)')}
+            if 'stop_warning' not in columns:
+                db.execute("ALTER TABLE jobs ADD COLUMN stop_warning TEXT NOT NULL DEFAULT ''")
             for name in ('directory', 'execution_json'):
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} TEXT')
             if 'cleanup_pending' not in columns:
                 db.execute('ALTER TABLE jobs ADD COLUMN cleanup_pending INTEGER NOT NULL DEFAULT 0')
                 db.execute('UPDATE jobs SET cleanup_pending=1 WHERE state IN (?,?,?)', TERMINAL)
-            for name in ('cleanup_attempts', 'cleanup_after'):
+            for name in ('cleanup_attempts', 'cleanup_after', 'hidden', 'stop_requested', 'delete_requested'):
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} NUMERIC NOT NULL DEFAULT 0')
             db.execute('CREATE TABLE IF NOT EXISTS execution_lanes '
@@ -142,12 +144,47 @@ class JobStore:
     def list(self, owner):
         with self.connect() as db:
             return [self.public(r) for r in db.execute(
-                'SELECT * FROM jobs WHERE owner=? ORDER BY created DESC LIMIT 100', (owner,))]
+                'SELECT * FROM jobs WHERE owner=? AND hidden=0 ORDER BY created DESC LIMIT 100', (owner,))]
 
     def get(self, owner, job_id):
         with self.connect() as db:
-            return self.public(db.execute('SELECT * FROM jobs WHERE id=? AND owner=?',
+            return self.public(db.execute('SELECT * FROM jobs WHERE id=? AND owner=? AND hidden=0',
                                           (job_id, owner)).fetchone())
+
+    def deletion_warnings(self, owner):
+        with self.connect() as db:
+            return [dict(id=row['id'], detail=row['stop_warning']) for row in db.execute(
+                "SELECT id,stop_warning FROM jobs WHERE owner=? AND hidden=1 AND stop_warning!='' ORDER BY created DESC",
+                (owner,))]
+
+    def record_stop_warning(self, job_id, warning):
+        with self.connect() as db:
+            db.execute('UPDATE jobs SET stop_warning=? WHERE id=?', (warning, job_id))
+
+    def request_control(self, owner, job_id, *, delete=False):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM jobs WHERE id=? AND owner=? AND hidden=0',
+                             (job_id, owner)).fetchone()
+            if row is None:
+                return None
+            queued = row['state'] == 'queued'
+            terminal = row['state'] in TERMINAL or queued
+            deleting = bool(delete or row['delete_requested'])
+            state = 'interrupted' if queued else row['state'] if terminal else 'stopping'
+            detail = 'Stopped by user.' if queued else row['detail'] if terminal else 'Stopping computation…'
+            db.execute('UPDATE jobs SET state=?,detail=?,stop_requested=?,delete_requested=?,hidden=?, '
+                       'cleanup_pending=CASE WHEN ? THEN 1 ELSE cleanup_pending END WHERE id=?',
+                       (state, detail, not terminal, deleting, terminal and deleting, queued, job_id))
+        if queued:
+            self._cleanup(job_id)
+        return dict(id=job_id, state='deleted') if terminal and deleting else self.get(owner, job_id)
+
+    def hide(self, job_id):
+        # Retain the durable record for credential cleanup and submission deduplication.
+        with self.connect() as db:
+            db.execute('UPDATE jobs SET hidden=1 WHERE id=? AND state IN (?,?,?)',
+                       (job_id, *TERMINAL))
 
     def submit(self, identity, body):
         from cryosparc_2d_projection.workflow_config import WORKFLOWS, build_arguments, default_values
@@ -217,7 +254,7 @@ class JobStore:
     def active_jobs(self):
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT id,scheduler_id FROM jobs WHERE state NOT IN (?,?,?,?) ORDER BY created',
+                'SELECT id,scheduler_id,stop_requested,delete_requested FROM jobs WHERE state NOT IN (?,?,?,?) ORDER BY created',
                 ('queued', *TERMINAL))]
 
     def claim_next(self):
@@ -228,7 +265,7 @@ class JobStore:
                 'SELECT profile,COUNT(*) AS count FROM jobs WHERE state NOT IN (?,?,?,?) GROUP BY profile',
                 ('queued', *TERMINAL))}
             profiles = self._profiles_in(db)
-            for row in db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created"):
+            for row in db.execute("SELECT * FROM jobs WHERE state='queued' AND stop_requested=0 ORDER BY created"):
                 current = profiles.get(row['profile'], {})
                 if active.get(row['profile'], 0) >= current.get('max_concurrent', 1):
                     continue
@@ -281,13 +318,18 @@ class JobStore:
 
     def update(self, job_id, state, detail='', scheduler_id=None):
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if state not in TERMINAL:
+                row = db.execute('SELECT stop_requested FROM jobs WHERE id=?', (job_id,)).fetchone()
+                if row and row['stop_requested']:
+                    state = 'stopping'
             changed = db.execute('UPDATE jobs SET state=?,detail=?,scheduler_id=COALESCE(?,scheduler_id) '
                                  'WHERE id=? AND state NOT IN (?,?,?)',
                                  (state, detail, scheduler_id, job_id, *TERMINAL)).rowcount
             if not changed:
                 return
             if state in TERMINAL:
-                db.execute('UPDATE jobs SET cleanup_pending=1 WHERE id=?', (job_id,))
+                db.execute('UPDATE jobs SET cleanup_pending=1,hidden=delete_requested WHERE id=?', (job_id,))
         if state in TERMINAL:
             self._cleanup(job_id)
 

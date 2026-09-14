@@ -11,6 +11,28 @@ and activity logs, without changing scientific rendering options. The preference
 is saved in this browser for this site only; no credentials are stored with it.
 If browser storage is blocked, switching still works for the current page.
 
+## Stop and delete jobs
+
+Select a job in your history to use **Stop job** or **Delete job** above the
+activity log. Stop requests immediate termination of Local worker processes or
+Slurm execution and keeps the record. The UI shows **stopping** until termination
+is confirmed, then **stopped**; a completed result keeps its completed outcome.
+Unconfirmed stops retain their record and can be retried.
+
+Delete asks for confirmation, stops active computation first, then removes the
+record from this interface. Local result files and CryoSPARC jobs/results remain;
+the result-viewing and class-selection entry points disappear from this interface.
+Credential cleanup continues even after the record is removed.
+
+The launcher attempts to mark the associated CryoSPARC External Job as failed
+with a user-stop explanation, while preserving jobs already completed. A sync
+failure remains visible, including after deletion. Legacy runs without a saved
+process identity may require administrator reconciliation after a service restart.
+
+Slurm termination combines an immediate KILL signal for running steps with
+allocation cancellation, then checks scheduler evidence. See the
+[scancel documentation](https://slurm.schedmd.com/scancel.html#SECTION_NOTES).
+
 ## Execution and Slurm
 
 CryoSPARC Tools' `ExternalJobController.queue()` explicitly rejects queuing

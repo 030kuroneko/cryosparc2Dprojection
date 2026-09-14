@@ -65,6 +65,7 @@ def main(argv=None):
             del os.environ[key]
     os.environ.update(XDG_CONFIG_HOME=str(directory / 'config'), MPLBACKEND='Agg')
     os.environ['CRYOSPARC2D_PROGRESS_PATH'] = str(directory / 'progress.json')
+    os.environ['CRYOSPARC2D_EXTERNAL_JOB_PATH'] = str(directory / 'external-job.json')
     os.environ['CRYOSPARC2D_SELECTION_DIR'] = str(directory / 'selection')
     if 'SLURM_CPUS_PER_TASK' in os.environ:
         for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
