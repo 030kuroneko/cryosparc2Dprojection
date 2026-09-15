@@ -1,5 +1,31 @@
 .DS_Store
+
+# Python environments, bytecode, and tool caches
 .pytest_cache/
 .venv/
 __pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Package build artifacts
 *.egg-info/
+/build/
+/dist/
+
+# Test coverage and generated live-validation reports
+.coverage
+.coverage.*
+/htmlcov/
+/coverage.xml
+/tests/live/results/
+/docs/fixtures/results/cryosparc_5_0_6.json
+/cryosparc_5_0_6_convention_result.json
+
+# Local environment settings (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
