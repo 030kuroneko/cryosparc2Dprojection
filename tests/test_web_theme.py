@@ -24,7 +24,7 @@ for (const saved of [null, 'light', 'dark', 'invalid', 'unavailable']) {
     localStorage: {getItem() {if(saved==='unavailable') throw Error('blocked'); return saved;},
       setItem(key,value) {if(saved==='unavailable') throw Error('blocked'); stored=value;}}};
   vm.runInNewContext(source, context);
-  const initial = saved === 'light' ? 'light' : 'dark';
+  const initial = saved === 'dark' ? 'dark' : 'light';
   assert.equal(root.dataset.theme, initial);
   button.click();
   assert.equal(root.dataset.theme, initial === 'dark' ? 'light' : 'dark');

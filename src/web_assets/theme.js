@@ -1,9 +1,9 @@
 "use strict";
 (() => {
   const root = document.documentElement;
-  let theme = "dark";
+  let theme = "light";
   try {
-    if (localStorage.getItem("cryosparc2d-theme") === "light") theme = "light";
+    if (localStorage.getItem("cryosparc2d-theme") === "dark") theme = "dark";
   } catch (_) { /* Storage may be disabled; switching still works. */ }
   root.dataset.theme = theme;
   document.addEventListener("DOMContentLoaded", () => {
