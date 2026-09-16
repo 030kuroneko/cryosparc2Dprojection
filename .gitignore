@@ -35,5 +35,9 @@ AGENTS.md
 agent.md
 CLAUDE.md
 /CONTEXT.md
-/docs/
-/tests/
+/docs/*
+!/docs/adr/
+/docs/adr/*
+!/docs/adr/0023-bound-web-admission-independently-of-cli.md
+/tests/*
+!/tests/test_web_admission_security.py

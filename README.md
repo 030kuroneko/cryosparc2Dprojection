@@ -305,6 +305,13 @@ For direct HTTP access on a trusted lab network, add
 `--public-url` is optional for a fixed address, custom DNS alias or HTTPS proxy.
 Credentials are unencrypted in direct HTTP mode; restrict network access to
 trusted lab/VPN clients.
+
+Anonymous login pages do not reserve server-side session slots. Existing signed-in
+sessions are preserved when the 2,048-session limit is reached; new sign-ins receive
+a retryable capacity message. Both Web workflows accept `Cn`/`Dn` up to `n=32`
+to bound submission validation costs. Larger orders are rejected with CLI guidance,
+without changing the submitted value; CLI symmetry support remains unchanged.
+
 See [deployment, authentication and Slurm setup](docs/web-launcher.md) and the
 [example configuration](docs/web-config.example.json). Slurm deployments also
 need a submission account with scheduler access and shared compute paths.

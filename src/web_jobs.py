@@ -14,6 +14,7 @@ import uuid
 
 TERMINAL = ('completed', 'failed', 'interrupted')
 VALIDATION_LOCK = threading.Lock()
+MAX_WEB_SYMMETRY_ORDER = 32
 
 
 @dataclass(frozen=True)
@@ -187,6 +188,7 @@ class JobStore:
                        (job_id, *TERMINAL))
 
     def submit(self, identity, body):
+        from cryosparc_2d_projection.symmetry import SupportedSymmetry
         from cryosparc_2d_projection.workflow_config import WORKFLOWS, build_arguments, default_values
         if not isinstance(body, dict) or set(body) != {'workflow', 'values', 'profile', 'request_id'}:
             raise ValueError('Expected workflow, values, profile and request_id')
@@ -211,6 +213,15 @@ class JobStore:
             if type(value) is not type(defaults[key]) or (isinstance(value, str) and len(value) > 2048):
                 raise ValueError(f'Invalid value: {key}')
         validated = dict(defaults, **values, url=self.config['cryosparc_url'])
+        # Bound work before the axis parser constructs operators under the lock.
+        # Blank values are omitted by build_arguments, preserving CLI defaults.
+        symmetry = SupportedSymmetry.parse(
+            validated['symmetry'].strip() or defaults['symmetry']).value
+        if symmetry.startswith(('C', 'D')):
+            order, maximum = symmetry[1:], str(MAX_WEB_SYMMETRY_ORDER)
+            if (len(order), order) > (len(maximum), maximum):
+                raise ValueError(f'Web symmetry order must be at most {maximum}; '
+                                 'use the CLI for larger Cn/Dn orders.')
         # argparse validation captures process-global stderr; serialize that short boundary.
         with VALIDATION_LOCK:
             argv = build_arguments(workflow, validated)

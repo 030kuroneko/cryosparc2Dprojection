@@ -15,10 +15,12 @@ import uuid
 from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, request, send_from_directory
+from itsdangerous import BadData, URLSafeTimedSerializer
+from werkzeug.exceptions import ServiceUnavailable
 
 from cryosparc_2d_projection.workflow_config import WORKFLOWS, workflow_fields, validate_url
 from cryosparc_2d_projection.workflow_fields import BASIC, LABELS, TITLES, DESCRIPTIONS, FIELD_HELP, SYMMETRY_HELP, PLACEHOLDERS, HELP_SOURCES
-from cryosparc_2d_projection.web_jobs import JobStore
+from cryosparc_2d_projection.web_jobs import JobStore, MAX_WEB_SYMMETRY_ORDER
 
 WEB_LABELS = dict(LABELS, render_grid_size='Surface sampling grid size',
                   render_size='Camera View Render size (px)', surface_level='Surface Level',
@@ -104,23 +106,35 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
         dispatcher.start()
         app.extensions['dispatcher'] = dispatcher
     sessions, attempts = {}, defaultdict(deque)
+    anonymous_sessions = URLSafeTimedSerializer(
+        secrets.token_bytes(32), salt='cryosparc2d-anonymous-session',
+        signer_kwargs={'digest_method': sha256})
     lock = threading.RLock()
     secure = public.scheme == 'https'
 
     def new_session(identity=None):
+        if identity is None:
+            # Bootstrap needs CSRF, but must not reserve shared login capacity.
+            csrf = secrets.token_urlsafe(32)
+            g.new_sid = anonymous_sessions.dumps(csrf)
+            g.identity = {'csrf': csrf}
+            return g.identity
         with lock:
             now = time.time()
             for sid in list(sessions):
                 if sessions[sid]['expires'] <= now:
                     del sessions[sid]
             if len(sessions) >= 2048:
-                raise ValueError('Too many sessions; try again later')
+                raise ServiceUnavailable('Sign-in capacity is full; please try again later.')
             sid = secrets.token_urlsafe(32)
-            sessions[sid] = dict(identity or {}, csrf=secrets.token_urlsafe(32),
-                                 expires=now + (28800 if identity else 1800))
+            sessions[sid] = dict(identity, csrf=secrets.token_urlsafe(32), expires=now + 28800)
             g.new_sid = sid
             g.identity = sessions[sid]
             return sessions[sid]
+
+    @app.errorhandler(ServiceUnavailable)
+    def capacity_exceeded(error):
+        return jsonify(error=error.description), 503, {'Retry-After': '60'}
 
     @app.before_request
     def protect():
@@ -141,8 +155,16 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
                 return jsonify(error='Untrusted host or port. Use the server IP/local hostname, or configure --public-url.'), 400
             request_origins = {request.host_url.rstrip('/')}
         with lock:
-            identity = sessions.get(request.cookies.get('projection_session'))
+            cookie = request.cookies.get('projection_session')
+            identity = sessions.get(cookie)
             g.identity = identity if identity and identity['expires'] > time.time() else None
+        if g.identity is None and cookie:
+            try:
+                csrf = anonymous_sessions.loads(cookie, max_age=1800)
+                if isinstance(csrf, str):
+                    g.identity = {'csrf': csrf}
+            except BadData:
+                pass
         if request.method not in ('GET', 'HEAD', 'OPTIONS'):
             if (request.headers.get('Origin') not in request_origins or
                     (loopback_http and request.headers.get('Origin') != request.host_url.rstrip('/')) or
@@ -168,7 +190,8 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
             response.headers['Strict-Transport-Security'] = 'max-age=31536000'
         if getattr(g, 'new_sid', None):
             response.set_cookie('projection_session', g.new_sid, httponly=True,
-                                secure=secure, samesite='Strict', max_age=28800, path='/')
+                                secure=secure, samesite='Strict',
+                                max_age=28800 if 'owner' in g.identity else 1800, path='/')
         return response
 
     @app.get('/api/session')
@@ -310,6 +333,9 @@ def create_app(config, *, authenticate=cryosparc_login, start_dispatcher=False):
                          'search')
                 label = key.replace('_', ' ').replace('resolution A', 'resolution (Å)')
                 hint, help_text = SYMMETRY_HELP[name] if key == 'symmetry' else FIELD_HELP[key]
+                if key == 'symmetry':
+                    help_text += (f' Web submissions support Cn/Dn up to n={MAX_WEB_SYMMETRY_ORDER}. '
+                                  'Use the CLI for larger orders.')
                 fields.append({'key': key, 'label': WEB_LABELS.get(key, label[0].upper() + label[1:]),
                                'hint': hint, 'help': help_text, 'placeholder': PLACEHOLDERS.get(key, ''),
                                'help_url': HELP_SOURCES.get(key, ''), 'required': field.required,
