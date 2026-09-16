@@ -177,9 +177,57 @@ This uses CryoSPARC's supported External Job API. Running the command creates a 
 
 ## Install
 
+Install from the GitHub source using either **uv** or **Conda/Miniforge**.
+Both methods below work before package publication, include the Web launcher,
+and require neither sudo nor a PyPI/Anaconda.org account. Install Git and your
+chosen environment manager first.
+
+### Option 1: uv
+
+```bash
+git clone https://github.com/030kuroneko/cryosparc2Dprojection.git
+cd cryosparc2Dprojection
+uv sync --extra web
+```
+
+Check the CLI and start the Web launcher from the checkout:
+
+```bash
+uv run cryosparc2d-projection --help
+uv run cryosparc2d --url https://your-cryosparc-server
+```
+
+### Option 2: Conda / Miniforge
+
+Conda manages the Python environment; pip installs this project from the local
+checkout in editable mode.
+
+```bash
+git clone https://github.com/030kuroneko/cryosparc2Dprojection.git
+cd cryosparc2Dprojection
+conda create -n cryosparc2d --override-channels -c conda-forge python=3.12 pip
+conda activate cryosparc2d
+python -m pip install -e '.[web]'
+```
+
+Check the CLI and start the Web launcher with the environment activated:
+
+```bash
+cryosparc2d-projection --help
+cryosparc2d --url https://your-cryosparc-server
+```
+
+For either method, replace `https://your-cryosparc-server` with your CryoSPARC
+URL, then open `http://127.0.0.1:40000` on the machine running the launcher.
+If the repository is already cloned, use that checkout and skip `git clone`.
+For source-installation updates, see [Update an editable installation](#update-an-editable-installation).
+
+### Package-manager installation (after publication)
+
 The release workflow builds packages for installation through **uv/PyPI** or
 **Conda/Miniforge**. These commands become available after the first publication;
-`YOUR_CHANNEL` is the Anaconda account configured by the maintainer.
+they are not the current installation method. `YOUR_CHANNEL` is the public
+Conda channel configured by the maintainer, not the installing user's account.
 
 ```bash
 uv tool install --python 3.12 cryosparc-2d-projection
