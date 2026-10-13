@@ -37,6 +37,14 @@ CLAUDE.md
 /CONTEXT.md
 /docs/*
 !/docs/usage.md
+!/docs/web-launcher.md
+!/docs/web-config.example.json
+!/docs/slurm-template.example.sh
+!/docs/research/
+/docs/research/*
+!/docs/research/cryosparc-point-groups.md
+!/docs/research/cryosparc-icosahedral-conventions.md
+!/docs/research/reference-based-class-orientation.md
 !/docs/adr/
 /docs/adr/*
 !/docs/adr/0023-bound-web-admission-independently-of-cli.md
