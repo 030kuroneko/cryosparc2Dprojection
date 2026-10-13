@@ -1,583 +1,104 @@
 # cryosparc2Dprojection
 
-## Select classes after Class Orientation
-
-New Class Orientation runs launched from the web interface provide a **Select
-classes** panel after completion. Review each original class alongside its
-matched projection and camera view, sort by class number, particle count or
-matching score, and use the checkboxes or Select all / Clear / Invert controls.
-Selections save automatically. Image-only fallback classes remain selectable;
-their particle counts describe the original input, not refinement overlap.
-
-**Export selection** snapshots the current choices and creates a new External
-Job in the same CryoSPARC project and workspace. It provides
-`particles_selected`, `templates_selected`, `particles_excluded`, and
-`templates_excluded`, preserving original dataset fields and source images.
-At least one class is required; selecting all classes produces empty excluded
-datasets. You can keep editing while an export runs and export another version
-later. This feature does not apply to Axis Search or older runs without saved
-selection artifacts; rerun Class Orientation to enable it.
-
-Failed exports retain their selection and can retry the recorded CryoSPARC job.
-If creation was interrupted before its job ID could be recorded, the UI blocks
-new exports for that run until an administrator reconciles the uncertain
-operation. Do not work around this by creating replacement jobs. Local SDK and
-browser tests cover selection and export behavior; empty-output acceptance and
-failed-job restart still require validation against a live CryoSPARC server.
-
-For the optional browser integration check, install Playwright in your test
-environment and run `node tests/browser_selection.cjs`; `CHROME_PATH` may specify
-a local Chrome executable. The check uses simulated API responses.
-
-## Symmetry-Axis Class Search
-
-`cryosparc2d-axis-search` is the image-only CryoSPARC 5.0.6 workflow. It needs
-only a Select 2D template output and a volume output; particles and refinement
-poses are not inputs. Set `--symmetry` to `Cn` (n >= 2), `Dn`, `T`, `O`, or `I`.
-It searches the `I` 2fold, 3fold, and 5fold Axis Families by default, ranks with the physical band-limited Axis Class Score,
-and publishes native-grid Exact-Axis results. Near-Axis Refinement is optional
-and runs only with `--refine-near-axis`.
-
-```bash
-uv run cryosparc2d-axis-search \
-  --url https://cryosparc.example.org \
-  --project P1 \
-  --workspace W1 \
-  --select-job J100 \
-  --select-output templates_selected \
-  --volume-job J200 \
-  --volume-output volume
-```
-
-For example, add `--symmetry D7 --axis-family 7fold` for the principal D7 axis,
-or `--symmetry O --axis-family 4fold` for an octahedral fourfold axis. Blank
-family selection searches all records. Inequivalent directions have separate
-names, such as `3fold` and `3fold-2` for C3; selecting one does not select both.
-See [axis families and conventions](docs/research/cryosparc-point-groups.md#axis-search).
-C1 has no nontrivial symmetry axes and is rejected before job creation.
-
-With the default I symmetry, use `--axis-family 2fold` for one family or
-`--axis-family 2fold,5fold` for a subset. Repeat `--axis-roll`, for example
-`--axis-roll 2fold=10 --axis-roll 3fold=-5`, for final display-only rotation.
-The command also accepts the documented score, shift, proximity, comparison,
-surface, and rendering overrides shown by `--help`.
-Pass `--auto-crop-2d` to opt into presentation-only framing of the 2D panels.
-For a refined result, one common frame is used across the Class Average and
-both Near-/Exact-Axis Matched Projection panels; axis-roll is applied before
-that frame is computed. The frame follows the Camera View Render's fixed
-orthographic physical field of view, converted from Å to native pixels. A
-single-view center follows Projection Shift. Axis exact/near views use their
-display-rolled centers and center the shared frame at the midpoint of their
-per-axis center range. If that range exceeds the common physical viewport, or
-the resulting frame cannot fit the native image, the complete native frame is
-used. Native scientific arrays, MRCS outputs, thumbnails, and Camera View PNGs
-remain unchanged.
-
-Exact-Axis Ranking uses Search Projections of at most 128 pixels per side.
-For each roll angle, a band-limited, soft-masked FFT normalized-correlation map
-compares every permitted XY shift at once. The Event Log and terminal report
-the active stage, family, class, pass, angle progress, elapsed time, and ETA.
-
-Outputs are ordered by family then rank:
-
-- `axis_candidates_raw`
-- `axis_candidates_aligned`
-- `axis_exact_references`
-- `axis_exact_search_projections`
-- `axis_exact_matched_projections`
-- `axis_search_preview` (aligned classes in displayed order, with the first
-  preview page attached to its output card)
-
-With `--refine-near-axis`, the job additionally publishes:
-
-- `axis_near_projections`
-- `axis_near_search_projections`
-- `axis_near_matched_projections`
-
-The job writes `axis_search_results.json`, three-column Exact-Axis PNG/Event
-Log previews, and no interactive axis-volume output. Each preview row labels
-the Axis Family, family-local rank, original CryoSPARC Class Number, Axis Class
-Score, and optional Near-Axis score and angular distance outside the scientific
-image panels. The
-first page is also the Dashboard job tile and `axis_search_preview` output
-image; all pages remain in the Event Log. Enabling Near-Axis Refinement expands
-the preview to five columns. Preview upload failure is warned without failing
-completed scientific outputs. The unsharpened `map` always controls ranking;
-`map_sharp`, DPI, page size, render size/grid, Surface Level, and manual axis
-roll affect presentation only.
-
-Create a CryoSPARC **v5.0.6 External Job** that maps Select 2D classes to reproducible Class Camera Orientations using particle poses from Non-uniform (NU) or Local Refinement, with image-only fallback for classes without usable overlapping poses.
-
-The job:
-
-1. matches Select 2D and refinement particles by CryoSPARC `uid`;
-2. uses valid particle poses present in both datasets; classes without any usable
-   overlap are matched directly to the same reference map by global image search;
-3. converts `alignments3D/pose` Rodrigues vectors using the same convention as pyem;
-4. folds symmetry-equivalent directions before averaging;
-5. folds complete symmetry-equivalent camera rotations before averaging;
-6. refines the viewing direction and in-plane rotation against the actual selected
-   class average;
-7. resamples the class and map to a common physical grid (at most 128 pixels);
-8. extracts a solid triangular isosurface from the Rendering Map;
-9. displays the class average, Matched Projection, and Camera View Render in
-   pages of ten classes.
-
-### Image-only fallback
-
-Keep selecting the same **Select 2D Classes + Refinement** jobs. No Auto Select
-job is required. Classes with usable overlapping poses keep the existing local
-search, including its low-score behavior; the other selected classes receive
-global coarse search followed by local refinement. Symmetry-equivalent cameras
-are grouped before comparing alternatives. Uncertain results remain visible;
-particle-derived spread is reported as unavailable.
-
-Optional CLI flags (also exposed in the web launcher's advanced settings):
-
-```text
---fallback-quality standard     # or fine (denser search, larger bounded grid)
---fallback-device auto          # cpu, or cuda to require a GPU at startup
---fallback-batch-size 16
-```
-
-`auto` uses an available NVIDIA GPU and otherwise reports CPU execution. GPU
-out-of-memory errors halve the batch down to one, then restart the search on CPU;
-other computation errors fail visibly. The algorithm uses one GPU and preserves
-the original class numbering and native rendered outputs. Search metadata records
-the device, settings, scores, competing groups and timing. Confidence is a
-heuristic, not a probability or evidence that every possible orientation was
-exhaustively evaluated.
-
-On a Linux worker with CUDA 12, the optional `gpu` extra installs CuPy:
-
-```bash
-uv sync --extra web --extra gpu
-```
-
-For another CUDA installation, install the appropriate CuPy package in the
-executing Python environment following the [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html).
-Do not install multiple CuPy distributions in the same environment. In Slurm
-administrator settings, select a GPU partition and set **GPUs** to **1**; the
-default **0** keeps existing CPU resource requests. GPU availability is determined
-on the executing worker, not the browser computer or the CryoSPARC master.
-
-Synthetic tests and local CPU checks are provided. Live CryoSPARC validation and
-real CUDA accuracy/throughput measurements remain pending; see the
-[fallback research record](docs/research/reference-based-class-orientation.md).
-
-## Compatibility
-
-- CryoSPARC server: **v5.0.6**
-- CryoSPARC Tools: `~=5.0.0`, following the official minor-version matching rule
-- Python: 3.10–3.12
-- Refinement source: NU Refinement or Local Refinement
-- Symmetry: `Cn`, `Dn` (positive integer `n`, e.g. `C3`, `D7`), `T`, `O`, or `I`
-
-This uses CryoSPARC's supported External Job API. Running the command creates a job inside the selected workspace, but does not permanently register a new built-in job type in Job Builder.
+Match CryoSPARC 2D classes to views of a 3D map and find classes along symmetry axes. Compare class averages, matched projections, and 3D renders. Run from the command line, or use the optional Web browser interface to run jobs, select classes, and export selections to CryoSPARC.
 
 ## Install
 
-Install from the GitHub source using either **uv** or **Conda/Miniforge**.
-Both methods below work before package publication, include the Web launcher,
-and require neither sudo nor a PyPI/Anaconda.org account. Install Git and your
-chosen environment manager first.
-
-### Option 1: uv
+Clone the repository:
 
 ```bash
 git clone https://github.com/030kuroneko/cryosparc2Dprojection.git
 cd cryosparc2Dprojection
+```
+
+Choose **one** method for installation:
+
+**Option 1: uv**
+
+Install the command-line tools:
+
+```bash
+uv sync
+```
+
+**Optional: install the Web browser interface** to run jobs, select classes with checkboxes, and export them to CryoSPARC:
+
+```bash
 uv sync --extra web
 ```
 
-Check the CLI and start the Web launcher from the checkout:
+**Option 2: Conda / Miniforge**
+
+Create an environment and install the command-line tools:
 
 ```bash
-uv run cryosparc2d-projection --help
-uv run cryosparc2d --url https://your-cryosparc-server
-```
-
-### Option 2: Conda / Miniforge
-
-Conda manages the Python environment; pip installs this project from the local
-checkout in editable mode.
-
-```bash
-git clone https://github.com/030kuroneko/cryosparc2Dprojection.git
-cd cryosparc2Dprojection
 conda create -n cryosparc2d --override-channels -c conda-forge python=3.12 pip
 conda activate cryosparc2d
-python -m pip install -e '.[web]'
+python -m pip install -e .
 ```
 
-Check the CLI and start the Web launcher with the environment activated:
-
-```bash
-cryosparc2d-projection --help
-cryosparc2d --url https://your-cryosparc-server
-```
-
-For either method, replace `https://your-cryosparc-server` with your CryoSPARC
-URL, then open `http://127.0.0.1:40000` on the machine running the launcher.
-If the repository is already cloned, use that checkout and skip `git clone`.
-For source-installation updates, see [Update an editable installation](#update-an-editable-installation).
-
-### Package-manager installation (after publication)
-
-The release workflow builds packages for installation through **uv/PyPI** or
-**Conda/Miniforge**. These commands become available after the first publication;
-they are not the current installation method. `YOUR_CHANNEL` is the public
-Conda channel configured by the maintainer, not the installing user's account.
-
-```bash
-uv tool install --python 3.12 cryosparc-2d-projection
-```
-
-Or, with Miniforge/Conda (Linux x86-64 or Apple Silicon macOS, Python 3.12):
-
-```bash
-conda create -n cryosparc2d --override-channels -c YOUR_CHANNEL -c conda-forge cryosparc-2d-projection
-conda activate cryosparc2d
-```
-
-In an existing Python 3.12 Conda environment:
-
-```bash
-conda install --override-channels -c YOUR_CHANNEL -c conda-forge cryosparc-2d-projection
-```
-
-Neither method requires sudo. Check installation with
-`cryosparc2d-projection --help` or `cryosparc2d-axis-search --help`.
-For updates, use `uv tool upgrade cryosparc-2d-projection` or
-`conda update -c YOUR_CHANNEL -c conda-forge cryosparc-2d-projection`.
-The `cryosparc2d-update` command is intended for editable Git installations.
-
-Maintainers: [configure packaging and publishing](docs/package-release.md).
-For development from a checkout, use `uv sync --extra web` and
-`uv run --extra web pytest -q`. The optional `install.sh` remains available for
-checkout-based deployment; it is not required to install a published package.
-
-## Multi-user web launcher (Abyss)
-
-The web launcher adds individual CryoSPARC sign-in, private run histories,
-responsive deep-ocean styling, and a persistent queue with independently
-configurable Local and Slurm lane concurrency. Administrators manage named lanes,
-external variable-substituted submission templates and GPU allocations in the
-web interface. On a **Linux server running systemd**, add all GUI
-dependencies, guided configuration and the persistent service with one command:
-
-```bash
-cryosparc2d-service install --source /absolute/path/to/checkout
-```
-
-Managed service setup currently requires a source checkout and uv in PATH,
-even when the CLI was installed from a published package. This step requests sudo, creates a dedicated `cryosparc2d` account and a managed
-runtime under `/opt/cryosparc2d`, validates your settings, and starts the service
-with boot startup enabled. Your personal CLI installation remains available.
-The default browser address is `http://YOUR-SERVER-IP:40000` on your lab network
-or VPN. Slurm and an existing HTTPS proxy are optional advanced settings.
-
-```bash
-cryosparc2d-service configure  # Change settings; Enter keeps each current value
-cryosparc2d-service status
-cryosparc2d-service stop       # Stop now; running computations can finish
-cryosparc2d-service start
-cryosparc2d-service restart
-cryosparc2d-service disable    # Disable boot startup; does not stop the service
-cryosparc2d-service enable    # Enable boot startup; does not start the service
-```
-
-Alternatively, for a foreground Web session in your own Python environment:
+**Optional: install the Web browser interface** to run jobs, select classes with checkboxes, and export them to CryoSPARC:
 
 ```bash
 python -m pip install -e '.[web]'
-cryosparc2d --url https://your-cryosparc-server
 ```
 
-Open `http://127.0.0.1:40000`. Slurm is optional and configured in the browser,
-not through additional launch flags. `--port` changes the default `40000`.
-`--config` remains available for advanced deployments; explicit flags override it.
-All project commands now start with `cryosparc2d`; reinstall to replace the old
-entry points. CryoSPARC's official commands and SDK names are unchanged.
+## Features
 
-For direct HTTP access on a trusted lab network, add
-`--host 0.0.0.0`. Users open `http://YOUR-SERVER-IP:40000`, not `0.0.0.0`.
-`--public-url` is optional for a fixed address, custom DNS alias or HTTPS proxy.
-Credentials are unencrypted in direct HTTP mode; restrict network access to
-trusted lab/VPN clients.
+- **Class Orientation**: match classes to map views.
+- **Axis Search**: find classes along symmetry axes.
+- **Select & Export**: select classes after Class Orientation and export to CryoSPARC using the Web checkbox panel.
 
-Anonymous login pages do not reserve server-side session slots. Existing signed-in
-sessions are preserved when the 2,048-session limit is reached; new sign-ins receive
-a retryable capacity message. Both Web workflows accept `Cn`/`Dn` up to `n=32`
-to bound submission validation costs. Larger orders are rejected with CLI guidance,
-without changing the submitted value; CLI symmetry support remains unchanged.
+## Quick start
 
-See [deployment, authentication and Slurm setup](docs/web-launcher.md) and the
-[example configuration](docs/web-config.example.json). Slurm deployments also
-need a submission account with scheduler access and shared compute paths.
-
-The Tk/ttk desktop launcher and `cryosparc2d-gui` command have been retired.
-Use the web launcher or the workflow CLI commands instead; reinstall the package
-to refresh installed command entry points.
-
-Both workflows show English progress in the web task page and CryoSPARC Job
-Log: current operation, completed/total work when known, elapsed time, and an
-approximate **stage** time remaining. Estimates need at least two completed
-units and exclude queue waiting. Unmeasured operations show `Estimating…`;
-elapsed time continues updating without inventing completed work. Completion
-is reported after required result publication finishes.
-
-The web page keeps technical diagnostics under **Technical details**. In
-CryoSPARC, the progress summary updates in place and diagnostic messages are
-retained in the job's `job-details.log` file. Warnings and errors remain visible.
-There is no historical whole-task ETA model; stage estimates do not include
-later rendering or upload work.
-
-Shared argument validation tests are in `tests/test_workflow_config.py`;
-web launch and execution tests run without a desktop display. Real-server
-verification still requires a configured CryoSPARC instance and representative
-input jobs.
-
-## Update an editable installation
-
-After installing from a Git checkout with `install.sh` or pip, update that
-installation from anywhere with:
+From the repository folder, install Web dependencies and start the browser interface (replace the URL with your CryoSPARC server):
 
 ```bash
-cryosparc2d-update
+uv run --extra web cryosparc2d --url https://your-cryosparc-server --port 40000
 ```
 
-The command fast-forwards the current branch from its configured upstream.
-For uv environments it synchronizes the lockfile, preserves CLI/Web and existing
-development dependencies, and checks the CLI entry points without requiring pip.
-It runs the test suite if development dependencies were already installed.
-Legacy pip/Conda installations retain their reinstall-and-test behavior.
-The separate managed GUI service under `/opt/cryosparc2d` is not updated or
-restarted by this command. It refuses to run from a
-detached HEAD, without an upstream, or while tracked files have local changes.
-Untracked files are preserved unless Git reports that an incoming file would
-overwrite one. A failed pull, installation, or test run returns a non-zero
-status and is not automatically rolled back.
+Open [localhost:40000](http://127.0.0.1:40000), sign in, and choose a workflow.
 
-Log in using CryoSPARC Tools' v5 token flow. Use the same URL you use in the browser:
+With Conda, install the optional Web dependencies above, then omit `uv run --extra web`.
+
+**CLI**: replace the URL, project/workspace IDs, job IDs, and symmetry with your own. With Conda, omit `uv run`.
+
+Sign in before your first CLI run:
 
 ```bash
-uv run python -m cryosparc.tools login --url https://cryosparc.example.org
+uv run python -m cryosparc.tools login --url https://your-cryosparc-server
 ```
 
-The token is stored by CryoSPARC Tools. This project does not store your email or password.
-
-## Run with NU Refinement
+**Class Orientation**: match Select 2D classes (`J100`) using NU or Local Refinement (`J200`):
 
 ```bash
 uv run cryosparc2d-projection \
-  --url https://cryosparc.example.org \
-  --project P1 \
-  --workspace W1 \
-  --select-job J100 \
-  --select-output particles_selected \
-  --refinement-job J200 \
-  --refinement-particles-output particles \
-  --volume-output volume \
-  --symmetry I
+  --url https://your-cryosparc-server \
+  --project P1 --workspace W1 \
+  --select-job J100 --refinement-job J200 --symmetry I
 ```
 
-With the P1/W9 test data and the conda installation:
+**Axis Search**: find symmetry-axis classes using Select 2D templates (`J100`) and a volume (`J200`):
 
 ```bash
-cryosparc2d-projection \
-  --url http://localhost:39000 \
-  --project P1 \
-  --workspace W9 \
-  --select-job J1025 \
-  --templates-output templates_selected \
-  --select-output particles_selected \
-  --refinement-job J1083 \
-  --refinement-particles-output particles \
-  --volume-output volume \
-  --symmetry I \
-  --classes 1,13,26 \
-  --render-map map
+uv run cryosparc2d-axis-search \
+  --url https://your-cryosparc-server \
+  --project P1 --workspace W1 \
+  --select-job J100 --volume-job J200 --symmetry I
 ```
 
-`--classes` is optional. The job analyzes every selected class either way; this
-option only creates extra rotated CryoSPARC Volume Viewer outputs for the listed
-one-based class numbers.
+Both commands create an External Job in the specified workspace. See [output settings](docs/usage.md) if your input output names differ. CLI has no checkbox panel; selection/export commands are not yet implemented.
 
-Use the sharpened result only for visualization with:
+## Compatibility & limits
 
-```bash
---render-map sharpened
-```
+- CryoSPARC **5.0.6**; Python **3.10–3.12**.
+- Class Orientation: Select 2D + NU or Local Refinement.
+- Axis Search: 2D templates + volume.
 
-Camera matching still uses the unsharpened `map`. Rendering options are:
+## Documentation
 
-```text
---surface-level FLOAT          Raw contour value; default is mean + 1.5 sigma
---render-background dark|light
---render-size INTEGER          Camera View Render PNG size; default: automatic
---render-grid-size INTEGER     Optional maximum surface grid; default: native map
---comparison-dpi INTEGER       All three-column Class Results; default: 100
---preview-page-size INTEGER    Classes per CryoSPARC preview page; default: 10
---auto-crop-2d                 Opt-in presentation-only 2D framing; default: off
-```
-
-When `--render-size` is omitted, its effective value is
-`max(1024, 3 * comparison_dpi)`. An explicit smaller value is respected with a
-warning because the third column may be upscaled. DPI has no hard maximum;
-values above 600 report the estimated page dimensions and RGBA memory in both
-the terminal and CryoSPARC Job Log.
-
-When `--render-grid-size` is omitted, surface extraction uses the complete
-native grid of the selected Rendering Map. An explicit value of at least 2
-reduces the grid proportionally without upsampling or distorting non-cubic
-maps; it has no fixed software maximum. The terminal, Job Log, and JSON record
-the original and effective shapes, downsampling state, and a lower-bound memory
-estimate in the technical details before extraction. The estimate covers known dense volume/mask/label
-arrays but excludes topology-dependent marching-cubes mesh and plotting
-allocations. Estimates above 1 GiB warn but continue. A memory failure never
-silently lowers quality and reports an explicit smaller retry value.
-
-For a high-quality export with one class per Event Log page:
-
-```bash
---comparison-dpi 600 --preview-page-size 1
-```
-
-This changes only Class Result raster presentation. It does not alter the Class
-Average, Search Projection, native-grid Matched Projection, Surface Sampling
-Grid, camera search, or matching scores.
-
-With `--auto-crop-2d`, each Class Result uses the Camera View Render's fixed
-orthographic physical field of view as a shared presentation viewport for the
-Class Average and Matched Projection. The physical viewport is converted from
-Å to native pixels using the Class Average pixel size. A single-view center
-follows Projection Shift. Axis exact/near views apply display roll and share a
-viewport centered at the midpoint of their per-axis display-center range.
-Framing does not inspect image contrast, noise, or thresholds. The frame is
-applied with display axes limits, so all source and scientific arrays retain
-their native shape and values. Missing or invalid physical units, a multi-view
-center range larger than the common viewport, or a resulting crop outside the
-native frame fall back to the complete native frame and record the reason in
-result JSON metadata. The option does not crop standalone
-thumbnails or Camera View Render PNGs.
-
-Camera selection and the raw search score use a bounded Search Projection of
-at most 128 pixels per side. After selecting the camera, the job regenerates a
-Matched Projection from the unsharpened Matching Map at the native Class
-Average box and pixel size and re-optimizes only XY translation. The
-Diagnostic Band-Limited Score is calculated from this native displayed pair.
-
-The comparison preview also reports a Diagnostic Band-Limited Score. Its
-defaults can be overridden without changing camera selection:
-
-```text
---diagnostic-low-resolution-A FLOAT        Default: 80
---diagnostic-high-resolution-A FLOAT       Default: 15
---diagnostic-mask-radius-fraction FLOAT    Default: 0.45 of box width
---diagnostic-mask-edge-fraction FLOAT      Default: 0.05 of box width
-```
-
-The effective frequency limits are clipped to the matching box extent and
-Nyquist resolution and recorded in `class_orientations.json`.
-
-To adjust the 3D density threshold explicitly, pass the raw Surface Level used
-by the CryoSPARC Volume Viewer, for example:
-
-```bash
---surface-level 0.12
-```
-
-Omit this option to keep automatic selection at mean + 1.5 sigma with fallback
-to lower usable levels.
-
-## Run with Local Refinement
-
-Use the Local Refinement job as `--refinement-job`. Change the two output names if that job exposes different names in its CryoSPARC Outputs panel:
-
-```bash
-uv run cryosparc2d-projection \
-  --url https://cryosparc.example.org \
-  --project P1 \
-  --workspace W1 \
-  --select-job J100 \
-  --refinement-job J300 \
-  --refinement-particles-output particles \
-  --volume-output volume \
-  --symmetry C1
-```
-
-## Outputs
-
-The created External Job contains:
-
-- `matched_projections`: native Class Average-grid projections used in Class
-  Results;
-- `search_projections`: bounded projections that produced the raw camera-search
-  scores, with additional `search_projections_NNN` outputs for different search
-  grids;
-- `rendering_map`: the selected unsharpened or sharpened Rendering Map in the
-  standard CryoSPARC `map` slot;
-- `class_NNN_volume`: camera-rotated volumes requested with `--classes`;
-- `class_orientations.json`: full rotation matrix, quaternion, direction, roll,
-  shift, raw match score, Diagnostic Band-Limited Score with reproducibility
-  metadata, presentation resolution, warnings, confidence, angular spread, and
-  Surface Level;
-- `class_projections.mrcs`: one native-grid matched projection per class;
-- `search_projections.mrcs` and optional `search_projections_NNN.mrcs`: bounded
-  scored projections grouped by box and pixel size; each class records its
-  `search_projection_output` and zero-based `search_projection_index` in JSON;
-- `renders/class_NNN_exact.png`: exact orthographic Camera View Render;
-- `renders/class_NNN_comparison.png`: three-column Class Result;
-- `chimerax/all_classes.cxc` and one ChimeraX script per class;
-- job-log preview pages: configurable three-column Class Results per page.
-
-The job tile uses the lowest Class Number's three-column Class Result as its
-Class Orientation Dashboard Preview. The `matched_projections` output card
-keeps its separate label-free native-grid thumbnail.
-
-CryoSPARC stores class IDs from zero. The JSON includes both `class_id`
-(zero-based) and `class_number` (one-based, matching the UI). Selected classes
-keep their original `blob/idx`, including gaps; they are never renumbered.
-
-## Important interpretation
-
-- Select 2D and refinement particles must share CryoSPARC UID lineage. Reordering and subsetting are safe; unrelated datasets are rejected.
-- Local Refinement may contain only a subset. Only overlapping particles contribute.
-- Refinement particle poses provide the seed. A bounded local projection search
-  then refines both viewing direction and in-plane rotation against the actual
-  selected class average.
-- `match_confidence` remains visible when low; it is not silently discarded.
-- `match_score` remains the raw score used to select the camera from bounded
-  Search Projections. The separately reported Diagnostic Band-Limited Score
-  checks the native-grid Class Average and Matched Projection inside a physical
-  frequency band and soft circular mask; it does not rerank cameras, define a
-  second-best margin, or represent a probability.
-- Symmetry folding prevents equivalent directions from cancelling during averaging. Always pass the symmetry used by refinement.
-- Class Orientation accepts `Cn`, `Dn`, `T`, `O`, and `I`; web users enter the
-  name in the Symmetry field. `I1`, `I2`, and helical/reflection groups are
-  unsupported. Axis Search accepts the same point groups except C1, which has
-  no nontrivial symmetry axes.
-- Inputs must use the declared symmetry-aligned map coordinates. Local convention
-  tests pass; live CryoSPARC operator/projection validation remains pending,
-  including the inferred T/O embeddings. See
-  [coordinate conventions and sources](docs/research/cryosparc-point-groups.md).
-- Static Class Results use the same vertical display orientation as the
-  CryoSPARC UI. Matching arrays, registered MRCS data, scores, and Camera
-  Metadata are not flipped.
-- The text-free Camera View Render uses the solved orthographic camera.
-- The automatic Surface Level starts at mean + 1.5 sigma, lowers it when that
-  contour is unusable, records the chosen value, and removes density islands
-  smaller than 1% of the main component. Use `--surface-level` to reproduce a
-  raw contour value chosen in CryoSPARC Volume Viewer.
-- CryoSPARC's public External Job API can register the original and rotated
-  volumes, but cannot preset the integrated Volume Viewer camera. Use a requested
-  `class_NNN_volume` or the generated ChimeraX scripts for the exact camera.
-
-## Development
-
-The repository follows test-driven development:
-
-```bash
-uv run pytest -q
-```
+- [Usage reference](docs/usage.md): CLI examples, parameters, outputs, GPU setup, updates, and interpretation.
+- [Web deployment](docs/web-launcher.md): authentication, shared service, and Slurm configuration.
+- [Configuration example](docs/web-config.example.json): launcher settings.
+- [Symmetry conventions](docs/research/cryosparc-point-groups.md): supported groups, coordinates, and sources.
+- [Image-only matching](docs/research/reference-based-class-orientation.md): method, confidence, and validation limits.

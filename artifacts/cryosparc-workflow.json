@@ -1,0 +1,220 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "CryoSPARC 2D 分析流程",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "orientation",
+      "label": "Class Orientation"
+    },
+    {
+      "id": "fallback",
+      "label": "缺少姿態時"
+    },
+    {
+      "id": "axis",
+      "label": "Axis Search"
+    },
+    {
+      "id": "selection",
+      "label": "Web 結果篩選"
+    }
+  ],
+  "mainPath": [
+    "class_inputs",
+    "pose_match",
+    "camera_refine",
+    "class_render",
+    "class_publish",
+    "review_classes",
+    "export_classes"
+  ],
+  "nodes": [
+    {
+      "id": "class_inputs",
+      "lane": "orientation",
+      "col": 0,
+      "type": "database",
+      "label": "選擇輸入",
+      "sublabel": "Select 2D + Refinement",
+      "width": 160
+    },
+    {
+      "id": "pose_match",
+      "lane": "orientation",
+      "col": 1,
+      "type": "backend",
+      "label": "UID 配對與姿態種子",
+      "sublabel": "依類別處理有效重疊姿態",
+      "width": 180
+    },
+    {
+      "id": "camera_refine",
+      "lane": "orientation",
+      "col": 2,
+      "type": "backend",
+      "label": "局部相機搜尋",
+      "sublabel": "方向／旋轉／位移"
+    },
+    {
+      "id": "class_render",
+      "lane": "orientation",
+      "col": 3,
+      "type": "backend",
+      "label": "Class Result Rendering",
+      "sublabel": "原始類別／匹配投影／3D 視圖",
+      "width": 180
+    },
+    {
+      "id": "class_publish",
+      "lane": "orientation",
+      "col": 4,
+      "type": "cloud",
+      "label": "發布分析結果",
+      "sublabel": "External Job"
+    },
+    {
+      "id": "image_search",
+      "lane": "fallback",
+      "col": 1,
+      "type": "backend",
+      "label": "全域影像搜尋",
+      "sublabel": "不使用粒子姿態"
+    },
+    {
+      "id": "axis_inputs",
+      "lane": "axis",
+      "col": 0,
+      "type": "database",
+      "label": "選擇輸入",
+      "sublabel": "2D templates + volume",
+      "width": 160
+    },
+    {
+      "id": "axis_rank",
+      "lane": "axis",
+      "col": 1,
+      "type": "backend",
+      "label": "Exact-Axis Ranking",
+      "sublabel": "依 Axis Family 排序類別",
+      "width": 180
+    },
+    {
+      "id": "axis_render",
+      "lane": "axis",
+      "col": 3,
+      "type": "backend",
+      "label": "Result Rendering",
+      "sublabel": "原生網格投影及預覽",
+      "width": 180
+    },
+    {
+      "id": "axis_publish",
+      "lane": "axis",
+      "col": 4,
+      "type": "cloud",
+      "label": "發布軸搜尋結果",
+      "sublabel": "External Job"
+    },
+    {
+      "id": "review_classes",
+      "lane": "selection",
+      "col": 4,
+      "type": "frontend",
+      "label": "檢視並勾選類別",
+      "sublabel": "完成後自動儲存選擇"
+    },
+    {
+      "id": "export_classes",
+      "lane": "selection",
+      "col": 5,
+      "type": "cloud",
+      "label": "Export selection",
+      "sublabel": "建立新的 External Job",
+      "width": 180
+    }
+  ],
+  "edges": [
+    {
+      "from": "class_inputs",
+      "to": "pose_match"
+    },
+    {
+      "from": "pose_match",
+      "to": "camera_refine",
+      "label": "有有效姿態"
+    },
+    {
+      "from": "pose_match",
+      "to": "image_search",
+      "label": "無有效姿態",
+      "role": "branch"
+    },
+    {
+      "from": "image_search",
+      "to": "camera_refine",
+      "label": "影像種子",
+      "role": "branch"
+    },
+    {
+      "from": "camera_refine",
+      "to": "class_render"
+    },
+    {
+      "from": "class_render",
+      "to": "class_publish"
+    },
+    {
+      "from": "class_publish",
+      "to": "review_classes",
+      "label": "Web 執行完成"
+    },
+    {
+      "from": "review_classes",
+      "to": "export_classes",
+      "label": "選擇快照"
+    },
+    {
+      "from": "axis_inputs",
+      "to": "axis_rank"
+    },
+    {
+      "from": "axis_rank",
+      "to": "axis_render",
+      "label": "可選 Near-Axis Refinement"
+    },
+    {
+      "from": "axis_render",
+      "to": "axis_publish"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "執行入口",
+      "items": [
+        "Web：登入 → 選工作流程 → Local／Slurm 排隊執行",
+        "CLI：直接啟動對應工作流程"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "比對與呈現",
+      "items": [
+        "未銳化 map 用於搜尋；Rendering Map 用於 3D 呈現",
+        "Search Projection 與原生網格 Matched Projection 分開輸出"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "選擇匯出",
+      "items": [
+        "輸出 selected／excluded 的 particles 與原始 templates",
+        "僅適用具選擇資料的 Web Class Orientation 結果"
+      ]
+    }
+  ]
+}

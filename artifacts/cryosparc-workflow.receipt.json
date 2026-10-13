@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/Users/chengguanheng/Documents/ChatGPT/cryosparc/artifacts/cryosparc-workflow.json",
+  "output": "/Users/chengguanheng/Documents/ChatGPT/cryosparc/artifacts/cryosparc-workflow.html",
+  "specification": {
+    "sha256": "12735014582bc9f4e843d3f24c612d5bef32557fb7f116bcbdbf716d9b713b03",
+    "bytes": 4792
+  },
+  "artifact": {
+    "sha256": "1fd64871afa2ed55e3e80c3618879d3e1aa561d7de253be29f0d3034fd751841",
+    "bytes": 716846
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

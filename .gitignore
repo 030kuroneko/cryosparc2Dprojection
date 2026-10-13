@@ -36,6 +36,7 @@ agent.md
 CLAUDE.md
 /CONTEXT.md
 /docs/*
+!/docs/usage.md
 !/docs/adr/
 /docs/adr/*
 !/docs/adr/0023-bound-web-admission-independently-of-cli.md

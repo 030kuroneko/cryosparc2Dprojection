@@ -1,0 +1,238 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Class Orientation｜詳細處理流程",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "prepare",
+      "label": "輸入與搜尋網格"
+    },
+    {
+      "id": "search",
+      "label": "有有效重疊姿態"
+    },
+    {
+      "id": "fallback",
+      "label": "無有效重疊姿態"
+    },
+    {
+      "id": "render",
+      "label": "Class Result Rendering"
+    },
+    {
+      "id": "deliver",
+      "label": "發布與人工選擇"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "inputs",
+      "lane": "prepare",
+      "col": 0,
+      "type": "database",
+      "label": "讀取輸入",
+      "sublabel": "Select 2D + Refinement",
+      "width": 200
+    },
+    {
+      "id": "uids",
+      "lane": "prepare",
+      "col": 1,
+      "type": "backend",
+      "label": "清理與 UID 配對",
+      "sublabel": "排除無效姿態；保留類別編號",
+      "width": 200
+    },
+    {
+      "id": "grid",
+      "lane": "prepare",
+      "col": 2,
+      "type": "backend",
+      "label": "建立共同物理網格",
+      "sublabel": "類別影像 + 未銳化 map；≤128 px",
+      "width": 200
+    },
+    {
+      "id": "pose",
+      "lane": "search",
+      "col": 2,
+      "type": "backend",
+      "label": "粒子姿態建立種子",
+      "sublabel": "結合 2D 旋轉；對稱折疊後平均",
+      "width": 200
+    },
+    {
+      "id": "local",
+      "lane": "search",
+      "col": 3,
+      "type": "backend",
+      "label": "局部投影搜尋",
+      "sublabel": "細化完整旋轉與 XY 位移",
+      "width": 200
+    },
+    {
+      "id": "image",
+      "lane": "fallback",
+      "col": 1,
+      "type": "backend",
+      "label": "全域影像搜尋與細化",
+      "sublabel": "粗搜 → 對稱分組 → 局部細化",
+      "width": 200
+    },
+    {
+      "id": "native",
+      "lane": "render",
+      "col": 3,
+      "type": "backend",
+      "label": "原生網格重新投影",
+      "sublabel": "Matched Projection + 診斷分數",
+      "width": 200
+    },
+    {
+      "id": "surface",
+      "lane": "render",
+      "col": 2,
+      "type": "backend",
+      "label": "建立 3D 相機視圖",
+      "sublabel": "Rendering Map → 等值面渲染",
+      "width": 200
+    },
+    {
+      "id": "assemble",
+      "lane": "render",
+      "col": 1,
+      "type": "database",
+      "label": "完成整組 Class Results",
+      "sublabel": "三欄比較圖、MRCS、相機 JSON",
+      "width": 200
+    },
+    {
+      "id": "publish",
+      "lane": "deliver",
+      "col": 1,
+      "type": "cloud",
+      "label": "發布 External Job",
+      "sublabel": "另備 ChimeraX／可選旋轉體積",
+      "width": 200
+    },
+    {
+      "id": "review",
+      "lane": "deliver",
+      "col": 2,
+      "type": "frontend",
+      "label": "Web 檢視與選擇",
+      "sublabel": "原始類別／投影／視圖；自動儲存",
+      "width": 200
+    },
+    {
+      "id": "export",
+      "lane": "deliver",
+      "col": 3,
+      "type": "cloud",
+      "label": "匯出選擇快照",
+      "sublabel": "新建 External Job；四個子集",
+      "width": 200
+    }
+  ],
+  "edges": [
+    {
+      "from": "inputs",
+      "to": "uids"
+    },
+    {
+      "from": "uids",
+      "to": "grid"
+    },
+    {
+      "from": "grid",
+      "to": "pose",
+      "label": "有姿態"
+    },
+    {
+      "from": "pose",
+      "to": "local",
+      "label": "相機種子"
+    },
+    {
+      "from": "grid",
+      "to": "image",
+      "label": "無姿態",
+      "role": "branch",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "bias": 0.15
+    },
+    {
+      "from": "local",
+      "to": "native",
+      "label": "選定相機"
+    },
+    {
+      "from": "image",
+      "to": "native",
+      "label": "選定相機",
+      "role": "branch"
+    },
+    {
+      "from": "native",
+      "to": "surface",
+      "label": "同一相機"
+    },
+    {
+      "from": "surface",
+      "to": "assemble",
+      "label": "完整結果集"
+    },
+    {
+      "from": "assemble",
+      "to": "publish"
+    },
+    {
+      "from": "publish",
+      "to": "review",
+      "label": "Web 完成後"
+    },
+    {
+      "from": "review",
+      "to": "export",
+      "label": "至少一類"
+    }
+  ],
+  "mainPath": [
+    "inputs",
+    "uids",
+    "grid",
+    "pose",
+    "local"
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "兩條搜尋路徑",
+      "items": [
+        "依各類別是否有可用 UID 重疊姿態分流。",
+        "有姿態但分數低，仍保留該結果；不改走全域搜尋。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "搜尋與呈現分開",
+      "items": [
+        "Search Projection 保留搜尋網格與原始評分。",
+        "原生投影診斷分數不重排相機；Rendering Map 不決定搜尋結果。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "完成與匯出",
+      "items": [
+        "所有類別結果生成完畢後才發布；低信心仍顯示。",
+        "匯出 selected／excluded 的原始 particles 與 templates。"
+      ]
+    }
+  ]
+}

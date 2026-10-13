@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/Users/chengguanheng/Documents/ChatGPT/cryosparc/artifacts/class-orientation-detail.json",
+  "output": "/Users/chengguanheng/Documents/ChatGPT/cryosparc/artifacts/class-orientation-detail.html",
+  "specification": {
+    "sha256": "d99a48287e87490065ec3cab9a092f8324435873b2044101fd4eea628bd2cc6a",
+    "bytes": 5145
+  },
+  "artifact": {
+    "sha256": "c423203ac8956de0e853783357f5629ba33d97bc84973c389a8eecccf0d82154",
+    "bytes": 719010
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}
